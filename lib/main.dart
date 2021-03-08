@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import 'package:wash_image/infrastructure/file_provider.dart';
 import 'package:wash_image/presentation/select_image.dart';
 
 void main() {
@@ -12,10 +14,13 @@ class MyApp extends StatelessWidget {
     return MaterialApp(
       title: '洗图片',
       theme: ThemeData(
-        
         primarySwatch: Colors.blue,
       ),
-      home: SelectImagePage(),
+      home: MultiProvider(providers: [
+        ChangeNotifierProvider(
+          create: (_) => FileProvider(),
+        ),
+      ], child: SelectImagePage()),
     );
   }
 }
