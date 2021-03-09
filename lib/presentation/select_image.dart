@@ -28,9 +28,10 @@ class _SelectImagePageState extends State<SelectImagePage> {
                   inspect(result);
                   final bytes = result.files.first.bytes;
                   DecodeResult decodeResult = ImageDecoder.decode(bytes);
-                  context.read<FileProvider>().file(result.files.first.path,
-                      result.files.first.bytes?.length,decodeResult.debugMessage);
-
+                  context.read<FileProvider>().file(result.files.first.name,
+                      result.files.first.size, decodeResult.debugMessage);
+                } else {
+                  print('图片数据为空');
                 }
               },
               child: Container(
@@ -47,7 +48,7 @@ class _SelectImagePageState extends State<SelectImagePage> {
                 ),
               )),
           Text('${context.watch<FileProvider>().filePath}'),
-          ImageInfoPage(),
+          Expanded(child: ImageInfoPage()),
         ],
       ),
     );
