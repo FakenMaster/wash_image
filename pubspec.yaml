@@ -12,6 +12,7 @@ dependencies:
   flutter:
     sdk: flutter
   cupertino_icons: ^1.0.1
+  dartx: ^0.6.0
   file_picker: ^3.0.0
   provider: ^5.0.0
 
