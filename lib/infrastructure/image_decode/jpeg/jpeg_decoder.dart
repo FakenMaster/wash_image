@@ -1,3 +1,4 @@
+import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:wash_image/infrastructure/image_decode/decode_result.dart';
@@ -23,11 +24,14 @@ class _JPEGDecoderInternal {
   StringBuffer debugMessage;
   late int widthPixel;
   late int heightPixel;
+  List<int> scanDatas = [];
   late Map<int, List<List<int>>> colorSampling = {
     1: List.generate(3, (index) => List.generate(2, (index) => 0)),
     2: List.generate(3, (index) => List.generate(2, (index) => 0)),
     3: List.generate(3, (index) => List.generate(2, (index) => 0)),
   };
+  late int maxHorizontalSampling;
+  late int maxVerticalSampling;
 
   _JPEGDecoderInternal(this.bytes) : debugMessage = StringBuffer();
 
@@ -66,10 +70,7 @@ class _JPEGDecoderInternal {
 
     switch (segment) {
       case JPEG_SOS:
-        if (!getSOS()) {
-          return false;
-        }
-        break;
+        return getSOS();
       case JPEG_EOI:
         getEOI();
         return true;
@@ -235,7 +236,7 @@ class _JPEGDecoderInternal {
       List<int> leaves = [];
       for (int i = 0; i < 16; i++) {
         leaves.add(bytes.getUint8(offset + i));
-        debugMessage.write('$i:${leaves[i].toRadix(padNum: 2)} ');
+        debugMessage.write('${i + 1}位:${leaves[i].toRadix(padNum: 2)} ');
       }
 
       offset += 16;
@@ -261,7 +262,7 @@ class _JPEGDecoderInternal {
   bool getSOF0() {
     int length = bytes.getUint16(offset) - 2;
     offset += 2;
-    debugMessage.writeln('start of frame:${JPEG_SOF0.toRadix()}, 长度:$length');
+    debugMessage.writeln('SOF:${JPEG_SOF0.toRadix()}, 长度:$length');
     if (length != 15) {
       return false;
     }
@@ -285,6 +286,8 @@ class _JPEGDecoderInternal {
     };
 
     /// https://github.com/MROS/jpeg_tutorial/blob/master/doc/%E8%B7%9F%E6%88%91%E5%AF%ABjpeg%E8%A7%A3%E7%A2%BC%E5%99%A8%EF%BC%88%E5%9B%9B%EF%BC%89%E8%AE%80%E5%8F%96%E5%A3%93%E7%B8%AE%E5%9C%96%E5%83%8F%E6%95%B8%E6%93%9A.md#%E8%AE%80%E5%8F%96-sof0-%E5%8D%80%E6%AE%B5
+    int maxHSampling = 0;
+    int maxVSampling = 0;
     for (int i = 0; i < 3; i++) {
       List<String> RGB = ['R', 'G', 'B'];
       for (int j = 0; j < 3; j++) {
@@ -292,19 +295,23 @@ class _JPEGDecoderInternal {
 
         /// 采样率，可以是1，2，3，4
         int subSample = bytes.getUint8(offset + 1);
-        int horizontalSample = subSample >> 4;
-        int verticalSample = subSample & 0x0f;
-        colorSampling[colorId]?[j][0] = horizontalSample;
-        colorSampling[colorId]?[j][1] = verticalSample;
+        int horizontalSampling = subSample >> 4;
+        int verticalSampling = subSample & 0x0f;
+        maxHSampling = max(maxHSampling, horizontalSampling);
+        maxVSampling = max(maxVSampling, verticalSampling);
+        colorSampling[colorId]?[j][0] = horizontalSampling;
+        colorSampling[colorId]?[j][1] = verticalSampling;
 
         /// 对应DQT中的量化表id
         int quantizationId = bytes.getUint8(offset + 2);
 
         debugMessage.writeln(
-            '颜色分量id:$colorId=>${colorIdMap[colorId]}.${RGB[j]}, 水平采样率:$horizontalSample, 垂直采样率:$verticalSample, 量化表id:$quantizationId');
+            '颜色分量id:$colorId=>${colorIdMap[colorId]}.${RGB[j]}, 水平采样率:$horizontalSampling, 垂直采样率:$verticalSampling, 量化表id:$quantizationId');
       }
       offset += 3;
     }
+    maxHorizontalSampling = 8 * maxHSampling;
+    maxVerticalSampling = 8 * maxVSampling;
     debugMessage.writeln('\n');
 
     return true;
@@ -343,14 +350,14 @@ class _JPEGDecoderInternal {
     /// 紧随其后，就是压缩图像的数据了
     readCompressedData();
 
-    debugMessage.writeln('哈夫曼编码：${HaffmanEncoder.encode('streets are stone stars are not')}');
+    // debugMessage.writeln('哈夫曼编码：${HaffmanEncoder.encode('go go gophers')}');
     return true;
   }
 
   /// 读取压缩数据
   void readCompressedData() {
-    int horizontalMCU = (widthPixel / 8).ceil();
-    int verticalMCU = (heightPixel / 8).ceil();
+    int horizontalMCU = (widthPixel / maxHorizontalSampling).ceil();
+    int verticalMCU = (heightPixel / maxVerticalSampling).ceil();
     debugMessage.writeln('水平MCU:$horizontalMCU, 垂直MCU:$verticalMCU');
 
     void readDataValue() {}
@@ -373,11 +380,59 @@ class _JPEGDecoderInternal {
       });
     }
 
-    for (int i = 0; i < verticalMCU; i++) {
-      for (int j = 0; j < horizontalMCU; j++) {
-        readMCU();
+    // for (int i = 0; i < verticalMCU; i++) {
+    //   for (int j = 0; j < horizontalMCU; j++) {
+    //     readMCU();
+    //   }
+    // }
+    int byte = bytes.getUint8(offset++);
+
+    while (true) {
+      if (byte == 0xFF) {
+        int prevByte = byte;
+        byte = bytes.getUint8(offset++);
+        if (byte == 0xD9) {
+          //文件结束
+          debugMessage.write('\n');
+          getEOI();
+          break;
+        }
+        scanDatas.add(prevByte);
+      }
+      scanDatas.add(byte);
+
+      byte = bytes.getUint8(offset++);
+    }
+
+    if (scanDatas.isEmpty) {
+      return;
+    }
+
+    List<int?> newScanData = List.from(scanDatas);
+    for (int i = 0; i < scanDatas.length; i++) {
+      int byte = scanDatas[i];
+      if (byte == 0xFF) {
+        if (i + 1 < scanDatas.length - 1) {
+          int nextByte = scanDatas[i + 1];
+          if (nextByte == 0x00) {
+            newScanData[i + 1] = null;
+          }
+        }
       }
     }
+
+    scanDatas.clear();
+    newScanData.forEach((element) {
+      if (element != null) {
+        scanDatas.add(element);
+      }
+    });
+
+    debugMessage.writeln('原压缩数据:');
+    // for (var byte in scanDatas) {
+    //   debugMessage.write('${byte.toRadix(padNum:2)} ');
+    // }
+    
   }
 
   /// check end of image
