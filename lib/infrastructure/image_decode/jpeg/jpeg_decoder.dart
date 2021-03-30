@@ -6,7 +6,7 @@ import 'package:wash_image/infrastructure/image_decode/jpeg/jpeg_jfif.dart';
 import 'package:wash_image/infrastructure/util/haffman_encoder.dart';
 import '../../util/int_extension.dart';
 
-///
+/// TODO: 最终目的：解析出RGB数据，保存ppm文件中，就是原始图像数据了
 class JPEGDecoder {
   static DecodeResult decode(Uint8List? dataBytes) {
     if (dataBytes == null || dataBytes.isEmpty) {
@@ -391,6 +391,7 @@ class _JPEGDecoderInternal {
       if (byte == 0xFF) {
         int prevByte = byte;
         byte = bytes.getUint8(offset++);
+        
         if (byte == 0xD9) {
           //文件结束
           debugMessage.write('\n');
@@ -427,6 +428,7 @@ class _JPEGDecoderInternal {
         scanDatas.add(element);
       }
     });
+    
 
     debugMessage.writeln('原压缩数据:');
     // for (var byte in scanDatas) {
