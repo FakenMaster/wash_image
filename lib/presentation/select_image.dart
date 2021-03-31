@@ -23,14 +23,14 @@ class _SelectImagePageState extends State<SelectImagePage> {
           ElevatedButton(
               onPressed: () async {
                 FilePickerResult? result =
-                    await FilePicker.platform.pickFiles(type: FileType.image);
+                    await FilePicker.platform.pickFiles(type: FileType.any);
 
                 if (result != null) {
                   inspect(result);
                   final bytes = result.files.first.bytes;
 
                   DecodeResult decodeResult = ImageDecoder.decode(bytes);
-                  // PPMEncoder(bytes).readFile();
+                  PPMEncoder(bytes).encode();
                   context.read<FileProvider>().file(result.files.first.name,
                       result.files.first.size, decodeResult.debugMessage);
                 } else {
