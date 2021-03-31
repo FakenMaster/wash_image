@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:wash_image/infrastructure/file_provider.dart';
 import 'package:wash_image/infrastructure/image_decode/decode_result.dart';
 import 'package:wash_image/infrastructure/image_decode/image_decoder.dart';
+import 'package:wash_image/infrastructure/image_encode/ppm/ppm_encoder.dart';
 import 'package:wash_image/presentation/image_info.dart';
 import 'package:provider/provider.dart';
 
@@ -27,7 +28,9 @@ class _SelectImagePageState extends State<SelectImagePage> {
                 if (result != null) {
                   inspect(result);
                   final bytes = result.files.first.bytes;
+
                   DecodeResult decodeResult = ImageDecoder.decode(bytes);
+                  // PPMEncoder(bytes).readFile();
                   context.read<FileProvider>().file(result.files.first.name,
                       result.files.first.size, decodeResult.debugMessage);
                 } else {
