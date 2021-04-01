@@ -14,6 +14,11 @@ class PixelRGB {
     int Cr = (0.5 * R - 0.4187 * G - 0.0813 * B + 128).round();
     return PixelYUV(Y, Cb, Cr);
   }
+
+  @override
+  String toString() {
+    return "($R, $G, $B)";
+  }
 }
 
 class PixelYUV {
@@ -31,5 +36,10 @@ class PixelYUV {
     int G = (Y - 0.34414 * (Cb - 128) - 0.71414 * (Cr - 128)).round();
     int B = (Y + 1.772 * (Cb - 128)).round();
     return PixelRGB(R, G, B);
+  }
+
+  @override
+  String toString() {
+    return "($Y, $Cb, $Cr)";
   }
 }
