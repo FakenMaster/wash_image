@@ -2,6 +2,7 @@ import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:wash_image/infrastructure/image_encode/block.dart';
+import 'package:wash_image/infrastructure/image_encode/component.dart';
 import 'package:wash_image/infrastructure/image_encode/pixel.dart';
 import 'package:stringx/stringx.dart';
 
@@ -198,7 +199,7 @@ class PPMEncoder {
       return value == 0 ? 1 / sqrt2 : 1;
     }
 
-    double d(int i, int j, List<List<int>> origin) {
+    int d(int i, int j, List<List<int>> origin) {
       int N = 8;
       double value = 0;
       for (int x = 0; x < N; x++) {
@@ -208,12 +209,13 @@ class PPMEncoder {
               cos((2 * y + 1) * j * pi / (2 * N));
         }
       }
-      return c(i) * c(j) * value / 4;
+      return (c(i) * c(j) * value / 4).round();
     }
 
-    List<List<double>> result = [];
+    List<List<int>> result = [];
+    // yBlocks.mapWithIndex((blockIndex, block) {
     test.mapWithIndex((i, element) {
-      List<double> what = [];
+      List<int> what = [];
       element.mapWithIndex((j, value) {
         buffer.write('$value  ');
         buffer2.write('${value - 128}  ');
@@ -225,6 +227,7 @@ class PPMEncoder {
       buffer3.writeln();
       result.add(what);
     }).toList();
+    // }).toList();
 
     print('Y:\n${buffer.toString()}');
     print('Y处理之后:\n${buffer2.toString()}');
@@ -234,7 +237,7 @@ class PPMEncoder {
     quantization(result);
   }
 
-  quantization(List<List<double>> items) {
+  quantization(List<List<int>> items) {
     List<List<int>> quantizationTable = [
       [16, 11, 10, 16, 24, 40, 51, 61],
       [12, 12, 14, 19, 26, 58, 60, 55],
@@ -264,40 +267,40 @@ class PPMEncoder {
     zigZagArrangement(result);
   }
 
-  zigZagArrangement(List<List<int>> items) {
-    final zigZag = [
-      // [0,0],
-      // [0,1],[1,0],
-      // [2,0],[1,1],[0,2],
-      // [0,3],[1,2],[2,1],[3,0],
-      // [4,0],[3,1],[2,2],[1,3],[0,4],
-      // [0,5],[1,4],[2,3],[3,2],[4,1],[5,0],
-      // [6,0],[5,1],[4,2],[3,3],[2,4],[1,5],[0,6],
-      // [0,7],[1,6],[2,5],[3,4],[4,3],[5,2],[6,1],[7,0],
-      // [7,1],[6,2],[5,3],[4,4],[3,5],[2,6],[1,7],
-      // [2,7],[3,6],[4,5],[5,4],[6,3],[7,2],
-      // [7,3],[6,4],[5,5],[4,6],[3,7],
-      // [4,7],[5,6],[6,5],[7,4],
-      // [7,5],[6,6],[5,7],
-      // [6,7],[7,6],
-      // [7,7],
-      [0, 0],
-      [0, 1], [1, 0],
-      [2, 0], [1, 1], [0, 2],
-      [0, 3], [1, 2], [2, 1], [3, 0],
-      [4, 0], [3, 1], [2, 2], [1, 3], [0, 4],
-      [0, 5], [1, 4], [2, 3], [3, 2], [4, 1], [5, 0],
-      [6, 0], [5, 1], [4, 2], [3, 3], [2, 4], [1, 5], [0, 6],
-      [0, 7], [1, 6], [2, 5], [3, 4], [4, 3], [5, 2], [6, 1], [7, 0],
-      [7, 1], [6, 2], [5, 3], [4, 4], [3, 5], [2, 6], [1, 7],
-      [2, 7], [3, 6], [4, 5], [5, 4], [6, 3], [7, 2],
-      [7, 3], [6, 4], [5, 5], [4, 6], [3, 7],
-      [4, 7], [5, 6], [6, 5], [7, 4],
-      [7, 5], [6, 6], [5, 7],
-      [6, 7], [7, 6],
-      [7, 7],
-    ];
+  final zigZag = [
+    // [0,0],
+    // [0,1],[1,0],
+    // [2,0],[1,1],[0,2],
+    // [0,3],[1,2],[2,1],[3,0],
+    // [4,0],[3,1],[2,2],[1,3],[0,4],
+    // [0,5],[1,4],[2,3],[3,2],[4,1],[5,0],
+    // [6,0],[5,1],[4,2],[3,3],[2,4],[1,5],[0,6],
+    // [0,7],[1,6],[2,5],[3,4],[4,3],[5,2],[6,1],[7,0],
+    // [7,1],[6,2],[5,3],[4,4],[3,5],[2,6],[1,7],
+    // [2,7],[3,6],[4,5],[5,4],[6,3],[7,2],
+    // [7,3],[6,4],[5,5],[4,6],[3,7],
+    // [4,7],[5,6],[6,5],[7,4],
+    // [7,5],[6,6],[5,7],
+    // [6,7],[7,6],
+    // [7,7],
+    [0, 0],
+    [0, 1], [1, 0],
+    [2, 0], [1, 1], [0, 2],
+    [0, 3], [1, 2], [2, 1], [3, 0],
+    [4, 0], [3, 1], [2, 2], [1, 3], [0, 4],
+    [0, 5], [1, 4], [2, 3], [3, 2], [4, 1], [5, 0],
+    [6, 0], [5, 1], [4, 2], [3, 3], [2, 4], [1, 5], [0, 6],
+    [0, 7], [1, 6], [2, 5], [3, 4], [4, 3], [5, 2], [6, 1], [7, 0],
+    [7, 1], [6, 2], [5, 3], [4, 4], [3, 5], [2, 6], [1, 7],
+    [2, 7], [3, 6], [4, 5], [5, 4], [6, 3], [7, 2],
+    [7, 3], [6, 4], [5, 5], [4, 6], [3, 7],
+    [4, 7], [5, 6], [6, 5], [7, 4],
+    [7, 5], [6, 6], [5, 7],
+    [6, 7], [7, 6],
+    [7, 7],
+  ];
 
+  zigZagArrangement(List<List<int>> items) {
     int getPosFromIndex(int i, int j) {
       for (int i = 0; i < zigZag.length; i++) {
         if (zigZag[i].first == i && zigZag[i].last == j) {
@@ -313,6 +316,7 @@ class PPMEncoder {
 
     StringBuffer buffer = StringBuffer();
     int sum = 0;
+
     zigZag.forEach((element) {
       if (sum != (element.first + element.last)) {
         sum = element.first + element.last;
@@ -321,9 +325,54 @@ class PPMEncoder {
       buffer.write('${items[element.first][element.last]} ');
     });
     print('蛇形:\n$buffer');
+
+    // print('${DCSizeValueCode(-8)}');
+
+    runLengthEncoding(items, 0);
   }
 
-  runLengthEncoding() {}
+  runLengthEncoding(List<List<int>> items, int previous) {
+    DCSizeValueCode dc = DCSizeValueCode(items[0][0] - previous);
+    StringBuffer buffer = StringBuffer();
+    buffer
+      ..write(dc.sizeCode)
+      ..write('--')
+      ..write(dc.code)
+      ..writeln();
+    int sum = 1;
+
+    int prefixZero = 0;
+    for (int index = 1; index < zigZag.length; index++) {
+      List<int> element = zigZag[index];
+      if (sum != (element.first + element.last)) {
+        sum = element.first + element.last;
+        buffer.writeln();
+      }
+      int value = items[element.first][element.last];
+      if (index == 63 && prefixZero != 0) {
+        buffer.write('$EOB ');
+        break;
+      }
+      if (prefixZero < 15 && value == 0) {
+        prefixZero++;
+      } else {
+        if (prefixZero == 15 && value == 0) {
+          prefixZero = 0;
+          buffer.write('$ZRL ');
+          continue;
+        }
+
+        int bit = DCSizeValueCode(value).size;
+
+        buffer
+          ..write(ACRunSize[prefixZero][bit+1])
+          ..write('--')
+          ..write(DCSizeValueCode(value).code)
+          ..write(' ');
+      }
+    }
+    print('蛇形huffman encoding:\n$buffer');
+  }
 
   huffmanCoding() {}
 }
