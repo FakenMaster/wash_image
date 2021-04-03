@@ -343,32 +343,35 @@ class PPMEncoder {
 
     int prefixZero = 0;
     for (int index = 1; index < zigZag.length; index++) {
+      // print('前置0: $index==>$prefixZero');
       List<int> element = zigZag[index];
       if (sum != (element.first + element.last)) {
         sum = element.first + element.last;
         buffer.writeln();
       }
       int value = items[element.first][element.last];
-      if (index == 63 && prefixZero != 0) {
-        buffer.write('$EOB ');
-        break;
-      }
-      if (prefixZero < 15 && value == 0) {
+
+      if (value == 0) {
+        if (index == 63) {
+          buffer.write('$EOB ');
+          prefixZero = 0;
+          break;
+        }
         prefixZero++;
       } else {
-        if (prefixZero == 15 && value == 0) {
-          prefixZero = 0;
+        //当前数非0
+        while (prefixZero >= 16) {
           buffer.write('$ZRL ');
-          continue;
+          prefixZero -= 16;
         }
-
         int bit = DCSizeValueCode(value).size;
 
         buffer
-          ..write(ACRunSize[prefixZero][bit+1])
+          ..write(ACLuminanceTable[prefixZero][bit - 1])
           ..write('--')
           ..write(DCSizeValueCode(value).code)
           ..write(' ');
+        prefixZero = 0;
       }
     }
     print('蛇形huffman encoding:\n$buffer');

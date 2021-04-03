@@ -1,16 +1,63 @@
-List<String> DCCodeFromSize = [
+/// luminance DC coefficient differences
+/// 位数：0x00 0x01 0x05 0x01 0x01 0x01 0x01 0x01 0x01 0x00 0x00 0x00 0x00 0x00 0x00 0x00
+/// 值：  
+const List<String> DCLuminanceTable = [
+  //category     code_length      cod_word
+
+  // 0 2 00
   '00',
+  // 1 3 010
   '010',
+  // 2 3 011
   '011',
+  // 3 3 100
   '100',
+  // 4 3 101
   '101',
+  // 5 3 110
   '110',
+  // 6 4 1110
   '1110',
+  // 7 5 11110
   '11110',
+  // 8 6 111110
   '111110',
+  // 9 7 1111110
   '1111110',
+  // 0 8 11111110
   '11111110',
+  // 1 9 111111110
   '111111110',
+];
+
+/// chrominance DC coefficient differences
+const List<String> DCChrominanceTable = [
+  //category     code_length      cod_word
+
+  // 0 2 00
+  '00',
+  // 1 2 01
+  '01',
+  // 2 2 10
+  '10',
+  // 3 3 110
+  '110',
+  // 4 4 1110
+  '1110',
+  // 5 5 11110
+  '11110',
+  // 6 6 111110
+  '111110',
+  // 7 7 1111110
+  '1111110',
+  // 8 8 11111110
+  '11111110',
+  // 9 9 111111110
+  '111111110',
+  // 10 10 1111111110
+  '1111111110',
+  // 11 11 11111111110
+  '11111111110',
 ];
 
 class DCSizeValueCode {
@@ -38,7 +85,7 @@ class DCSizeValueCode {
       code = newCode;
     }
     size = code.length;
-    sizeCode = DCCodeFromSize[size];
+    sizeCode = DCLuminanceTable[size];
   }
 
   @override
@@ -47,29 +94,29 @@ class DCSizeValueCode {
   }
 }
 
-class ACRunSizeCode {}
+class ACLuminanceTableCode {}
 
 // 0/0 (EOB) 4 1010
 String EOB = '1010';
-List<List<String>> ACRunSize = [
-  ACRunSize0,
-  ACRunSize1,
-  ACRunSize2,
-  ACRunSize3,
-  ACRunSize4,
-  ACRunSize5,
-  ACRunSize6,
-  ACRunSize7,
-  ACRunSize8,
-  ACRunSize9,
-  ACRunSizeA,
-  ACRunSizeB,
-  ACRunSizeC,
-  ACRunSizeD,
-  ACRunSizeE,
-  ACRunSizeF,
+List<List<String>> ACLuminanceTable = [
+  ACLuminanceTable0,
+  ACLuminanceTable1,
+  ACLuminanceTable2,
+  ACLuminanceTable3,
+  ACLuminanceTable4,
+  ACLuminanceTable5,
+  ACLuminanceTable6,
+  ACLuminanceTable7,
+  ACLuminanceTable8,
+  ACLuminanceTable9,
+  ACLuminanceTableA,
+  ACLuminanceTableB,
+  ACLuminanceTableC,
+  ACLuminanceTableD,
+  ACLuminanceTableE,
+  ACLuminanceTableF,
 ];
-List<String> ACRunSize0 = [
+List<String> ACLuminanceTable0 = [
 // 0/1 2 00
   '00',
 // 0/2 2 01
@@ -92,7 +139,7 @@ List<String> ACRunSize0 = [
   '1111111110000011',
 ];
 
-List<String> ACRunSize1 = [
+List<String> ACLuminanceTable1 = [
 // 1/1 4 1100
   '1100',
 // 1/2 5 11011
@@ -115,7 +162,7 @@ List<String> ACRunSize1 = [
   '1111111110001000',
 ];
 
-List<String> ACRunSize2 = [
+List<String> ACLuminanceTable2 = [
 // 2/1 5 11100
   '11100',
 // 2/2 8 11111001
@@ -138,7 +185,7 @@ List<String> ACRunSize2 = [
   '1111111110001110',
 ];
 
-List<String> ACRunSize3 = [
+List<String> ACLuminanceTable3 = [
 // 3/1 6 111010
   '111010',
 // 3/2 9 111110111
@@ -161,7 +208,7 @@ List<String> ACRunSize3 = [
   '1111111110010101',
 ];
 
-List<String> ACRunSize4 = [
+List<String> ACLuminanceTable4 = [
 // 4/1 6 111011
   '111011',
 // 4/2 10 1111111000
@@ -184,7 +231,7 @@ List<String> ACRunSize4 = [
   '1111111110011101',
 ];
 
-List<String> ACRunSize5 = [
+List<String> ACLuminanceTable5 = [
 // 5/1 7 1111010
   '1111010',
 // 5/2 11 11111110111
@@ -207,7 +254,7 @@ List<String> ACRunSize5 = [
   '1111111110100101',
 ];
 
-List<String> ACRunSize6 = [
+List<String> ACLuminanceTable6 = [
 // 6/1 7 1111011
   '1111011',
 // 6/2 12 111111110110
@@ -230,7 +277,7 @@ List<String> ACRunSize6 = [
   '1111111110101101',
 ];
 
-List<String> ACRunSize7 = [
+List<String> ACLuminanceTable7 = [
 // 7/1 8 11111010
   '11111010',
 // 7/2 12 111111110111
@@ -253,7 +300,7 @@ List<String> ACRunSize7 = [
   '1111111110110101',
 ];
 
-List<String> ACRunSize8 = [
+List<String> ACLuminanceTable8 = [
 // 8/1 9 111111000
   '111111000',
 // 8/2 15 111111111000000
@@ -276,7 +323,7 @@ List<String> ACRunSize8 = [
   '1111111110111101',
 ];
 
-List<String> ACRunSize9 = [
+List<String> ACLuminanceTable9 = [
 // 9/1 9 111111001
   '111111001',
 // 9/2 16 1111111110111110
@@ -299,7 +346,7 @@ List<String> ACRunSize9 = [
   '1111111111000110',
 ];
 
-List<String> ACRunSizeA = [
+List<String> ACLuminanceTableA = [
 // A/1 9 111111010
   '111111010',
 // A/2 16 1111111111000111
@@ -322,7 +369,7 @@ List<String> ACRunSizeA = [
   '1111111111001111',
 ];
 
-List<String> ACRunSizeB = [
+List<String> ACLuminanceTableB = [
 // B/1 10 1111111001
   '1111111001',
 // B/2 16 1111111111010000
@@ -345,7 +392,7 @@ List<String> ACRunSizeB = [
   '1111111111011000',
 ];
 
-List<String> ACRunSizeC = [
+List<String> ACLuminanceTableC = [
 // C/1 10 1111111010
   '1111111010',
 // C/2 16 1111111111011001
@@ -368,7 +415,7 @@ List<String> ACRunSizeC = [
   '1111111111100001',
 ];
 
-List<String> ACRunSizeD = [
+List<String> ACLuminanceTableD = [
 // D/1 11 11111111000
   '11111111000',
 // D/2 16 1111111111100010
@@ -391,7 +438,7 @@ List<String> ACRunSizeD = [
   '1111111111101010',
 ];
 
-List<String> ACRunSizeE = [
+List<String> ACLuminanceTableE = [
 // E/1 16 1111111111101011
   '1111111111101011',
 // E/2 16 1111111111101100
@@ -414,7 +461,7 @@ List<String> ACRunSizeE = [
   '1111111111110100',
 ];
 
-List<String> ACRunSizeF = [
+List<String> ACLuminanceTableF = [
 // F/1 15 111111111000011
   '111111111000011',
 // F/2 16 1111111111110110
