@@ -30,7 +30,7 @@ class _SelectImagePageState extends State<SelectImagePage> {
                   final bytes = result.files.first.bytes;
 
                   DecodeResult decodeResult = ImageDecoder.decode(bytes);
-                  // PPMEncoder(bytes).encode();
+                  PPMEncoder(bytes).encode();
                   context.read<FileProvider>().file(result.files.first.name,
                       result.files.first.size, decodeResult.debugMessage);
                 } else {

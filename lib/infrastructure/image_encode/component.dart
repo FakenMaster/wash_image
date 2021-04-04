@@ -1,6 +1,6 @@
 /// luminance DC coefficient differences
 /// 位数：0x00 0x01 0x05 0x01 0x01 0x01 0x01 0x01 0x01 0x00 0x00 0x00 0x00 0x00 0x00 0x00
-/// 值：  
+/// 值：
 const List<String> DCLuminanceTable = [
   //category     code_length      cod_word
 
@@ -24,9 +24,9 @@ const List<String> DCLuminanceTable = [
   '111110',
   // 9 7 1111110
   '1111110',
-  // 0 8 11111110
+  // 10 8 11111110
   '11111110',
-  // 1 9 111111110
+  // 11 9 111111110
   '111111110',
 ];
 
@@ -65,27 +65,27 @@ class DCSizeValueCode {
   int value;
   late String code;
   late String sizeCode; // from DCCodeFromSize below.
-  DCSizeValueCode(this.value) {
-    operate(value);
+  DCSizeValueCode(this.value, bool isLuminance) {
+    operate(value, isLuminance);
   }
 
-  operate(int value) {
+  operate(int value, bool isLuminance) {
     size = 0;
     code = '';
-    if (value == 0) {
-      return;
-    }
-    int absValue = value.abs();
-    code = absValue.toRadixString(2);
-    if (value < 0) {
-      String newCode = '';
-      for (int i = 0; i < code.length; i++) {
-        newCode += (code[i] == '0' ? '1' : '0');
+    if (value != 0) {
+      int absValue = value.abs();
+      code = absValue.toRadixString(2);
+      if (value < 0) {
+        String newCode = '';
+        for (int i = 0; i < code.length; i++) {
+          newCode += (code[i] == '0' ? '1' : '0');
+        }
+        code = newCode;
       }
-      code = newCode;
     }
     size = code.length;
-    sizeCode = DCLuminanceTable[size];
+
+    sizeCode = isLuminance ? DCLuminanceTable[size] : DCChrominanceTable[size];
   }
 
   @override

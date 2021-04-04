@@ -10,7 +10,7 @@ class Block {
 
   //取样
   shrink([int shrinkTimes = 4]) {
-    int step = blockSize ~/ shrinkTimes;
+    int step = 2; //blockSize ~/ shrinkTimes;
     List<int> newItems = [];
     for (int line = 0; line < blockSize; line += step) {
       for (int col = 0; col < blockSize; col += step) {
@@ -27,9 +27,9 @@ class Block {
     }
 
     items.clear();
-    for (int i = 0; i < newItems.length; i += shrinkTimes) {
-      items.add(newItems.sublist(i, i + shrinkTimes));
+    for (int i = 0; i < newItems.length; i += 8) {
+      items.add(newItems.sublist(i, i + 8));
     }
-    blockSize = step * step;
+    blockSize = (blockSize / 2).round();
   }
 }

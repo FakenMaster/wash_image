@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:wash_image/infrastructure/image_encode/block.dart';
 import 'package:wash_image/infrastructure/image_encode/component.dart';
+import 'package:wash_image/infrastructure/image_encode/mcu.dart';
 import 'package:wash_image/infrastructure/image_encode/pixel.dart';
 import 'package:stringx/stringx.dart';
 
@@ -23,6 +24,11 @@ class PPMEncoder {
   List<Block> uBlocks = [];
   List<Block> vBlocks = [];
 
+  List<McuDCT> dcts = [];
+  List<McuQT> qts = [];
+  List<McuStr> strs = [];
+  int previousDC = 0;
+
   PPMEncoder(Uint8List? data) {
     bytes = data!.buffer.asByteData();
   }
@@ -32,6 +38,32 @@ class PPMEncoder {
     colorSpaceConversion();
     splitIntoBlocks();
     discreteCosineTransform();
+
+    /// 量化
+    qts = dcts
+        .map((e) => McuQT(e.yDCTs.map((e) => quantization(e)).toList(),
+            quantization(e.uDCTs, false), quantization(e.vDCTs, false)))
+        .toList();
+
+    /// 蛇形
+
+    previousDC = 0;
+    strs = qts
+        .map((e) => McuStr(
+            e.yQTs.map((qt) => zigZagArrangement(qt, true)).toList(),
+            zigZagArrangement(e.uQTs, false),
+            zigZagArrangement(e.vQTs, false)))
+        .toList();
+
+    print('\n');
+    strs.mapWithIndex((i, value) {
+      print('MCU:${i + 1}');
+      value.yStrs.mapWithIndex((j, str) {
+        print('Y${j + 1}:\n$str');
+      }).toList();
+      print('Cb:\n${value.uStr}');
+      print('Cr:\n${value.vStr}');
+    }).toList();
   }
 
   readFile() {
@@ -130,7 +162,7 @@ class PPMEncoder {
       buffer.writeln();
     });
     print('像素大小:${yuvs.length * yuvs[0].length}');
-    print('RGB值:\n${buffer.toString()}');
+    // print('RGB值:\n${buffer.toString()}');
 
     StringBuffer yuvBuffer = StringBuffer();
     yuvs.forEach((element) {
@@ -146,32 +178,55 @@ class PPMEncoder {
 
   splitIntoBlocks() {
     int position = 0;
-    for (int line = 0; line < height; line += 8) {
-      for (int col = 0; col < width; col += 8) {
+    int rate = 2;
+
+    final MCUPixel = rate * 8;
+    int newWidth = (width / MCUPixel).ceil() * MCUPixel;
+    int newHeight = (height / MCUPixel).ceil() * MCUPixel;
+
+    for (int line = 0; line < newHeight; line += 8) {
+      for (int col = 0; col < newWidth; col += 8) {
         /// 正常是8*8块
         List<List<int>> yPixels = [];
-        List<List<int>> uPixels = [];
-        List<List<int>> vPixels = [];
 
         for (int i = line; i < line + 8; i++) {
           List<int> lineYPixels = [];
-          List<int> lineUPixels = [];
-          List<int> lineVPixels = [];
 
           int newI = min(i, height - 1);
           for (int j = col; j < col + 8; j++) {
             int newJ = min(j, width - 1);
             lineYPixels.add(yuvs[newI][newJ].Y);
+          }
+
+          yPixels.add(lineYPixels);
+        }
+        int p = position++;
+        yBlocks.add(Block(yPixels, p));
+      }
+    }
+
+    position = 0;
+    for (int line = 0; line < newHeight; line += MCUPixel) {
+      for (int col = 0; col < newWidth; col += MCUPixel) {
+        /// 正常是8*8块
+        List<List<int>> uPixels = [];
+        List<List<int>> vPixels = [];
+
+        for (int i = line; i < line + MCUPixel; i++) {
+          List<int> lineUPixels = [];
+          List<int> lineVPixels = [];
+
+          int newI = min(i, height - 1);
+          for (int j = col; j < col + MCUPixel; j++) {
+            int newJ = min(j, width - 1);
             lineUPixels.add(yuvs[newI][newJ].Cb);
             lineVPixels.add(yuvs[newI][newJ].Cr);
           }
 
-          yPixels.add(lineYPixels);
           uPixels.add(lineUPixels);
           vPixels.add(lineVPixels);
         }
         int p = position++;
-        yBlocks.add(Block(yPixels, p));
         uBlocks.add(Block(uPixels, p)..shrink());
         vBlocks.add(Block(vPixels, p)..shrink());
       }
@@ -179,21 +234,17 @@ class PPMEncoder {
   }
 
   discreteCosineTransform() {
-    List<List<int>> test = [
-      [52, 55, 61, 66, 70, 61, 64, 73],
-      [63, 59, 55, 90, 109, 85, 69, 72],
-      [62, 59, 68, 113, 144, 104, 66, 63],
-      [63, 58, 71, 122, 154, 106, 70, 69],
-      [67, 61, 68, 104, 126, 88, 68, 70],
-      [79, 65, 60, 70, 77, 68, 58, 75],
-      [85, 71, 64, 59, 55, 61, 65, 83],
-      [87, 79, 69, 68, 65, 76, 78, 94],
-    ];
+    // List<List<int>> test = [
+    //   [52, 55, 61, 66, 70, 61, 64, 73],
+    //   [63, 59, 55, 90, 109, 85, 69, 72],
+    //   [62, 59, 68, 113, 144, 104, 66, 63],
+    //   [63, 58, 71, 122, 154, 106, 70, 69],
+    //   [67, 61, 68, 104, 126, 88, 68, 70],
+    //   [79, 65, 60, 70, 77, 68, 58, 75],
+    //   [85, 71, 64, 59, 55, 61, 65, 83],
+    //   [87, 79, 69, 68, 65, 76, 78, 94],
+    // ];
     // test = yBlocks.first.items;
-
-    StringBuffer buffer = StringBuffer();
-    StringBuffer buffer2 = StringBuffer();
-    StringBuffer buffer3 = StringBuffer();
 
     double c(int value) {
       return value == 0 ? 1 / sqrt2 : 1;
@@ -212,33 +263,27 @@ class PPMEncoder {
       return (c(i) * c(j) * value / 4).round();
     }
 
-    List<List<int>> result = [];
-    // yBlocks.mapWithIndex((blockIndex, block) {
-    test.mapWithIndex((i, element) {
-      List<int> what = [];
-      element.mapWithIndex((j, value) {
-        buffer.write('$value  ');
-        buffer2.write('${value - 128}  ');
-        what.add(d(i, j, test));
-        buffer3.write('${d(i, j, test)} ');
-      }).toList();
-      buffer.writeln();
-      buffer2.writeln();
-      buffer3.writeln();
-      result.add(what);
-    }).toList();
-    // }).toList();
+    List<List<int>> dct(List<List<int>> items) {
+      return items
+          .mapWithIndex((i, lineItems) =>
+              lineItems.mapWithIndex((j, value) => d(i, j, items)).toList())
+          .toList();
+    }
 
-    print('Y:\n${buffer.toString()}');
-    print('Y处理之后:\n${buffer2.toString()}');
-    print('DCT:\n${buffer3.toString()}');
-
-    /// 量化
-    quantization(result);
+    for (int i = 0; i < uBlocks.length; i++) {
+      List<List<List<int>>> yDCTs = [];
+      for (int j = 0; j < 4; j++) {
+        yDCTs.add(dct(yBlocks[i * 4 + j].items));
+      }
+      List<List<int>> uDCTs = dct(uBlocks[i].items);
+      List<List<int>> vDCTs = dct(vBlocks[i].items);
+      dcts.add(McuDCT(yDCTs, uDCTs, vDCTs));
+    }
   }
 
-  quantization(List<List<int>> items) {
-    List<List<int>> quantizationTable = [
+  List<List<int>> quantization(List<List<int>> items,
+      [bool isLuminance = true]) {
+    List<List<int>> luminanceQT = [
       [16, 11, 10, 16, 24, 40, 51, 61],
       [12, 12, 14, 19, 26, 58, 60, 55],
       [14, 13, 16, 24, 40, 57, 69, 56],
@@ -249,22 +294,26 @@ class PPMEncoder {
       [72, 92, 95, 98, 112, 100, 103, 99],
     ];
 
-    List<List<int>> result = [];
+    List<List<int>> chrominanceQT = [
+      [17, 18, 24, 47, 99, 99, 99, 99],
+      [18, 21, 26, 66, 99, 99, 99, 99],
+      [24, 26, 56, 99, 99, 99, 99, 99],
+      [47, 66, 99, 99, 99, 99, 99, 99],
+      [99, 99, 99, 99, 99, 99, 99, 99],
+      [99, 99, 99, 99, 99, 99, 99, 99],
+      [99, 99, 99, 99, 99, 99, 99, 99],
+      [99, 99, 99, 99, 99, 99, 99, 99],
+    ];
 
-    StringBuffer buffer = StringBuffer();
-    for (int i = 0; i < 8; i++) {
-      List<int> data = [];
-      for (int j = 0; j < 8; j++) {
-        data.add((items[i][j] / quantizationTable[i][j]).round());
-        buffer.write('${data[j]} ');
-      }
-      buffer.writeln();
-      result.add(data);
-    }
-    print('量化:\n${buffer.toString()}');
+    final qt = isLuminance ? luminanceQT : chrominanceQT;
 
-    /// 蛇形
-    zigZagArrangement(result);
+    List<List<int>> result = items
+        .mapWithIndex((i, _) => items[i]
+            .mapWithIndex((j, _) => (items[i][j] / qt[i][j]).round())
+            .toList())
+        .toList();
+
+    return result;
   }
 
   final zigZag = [
@@ -300,45 +349,20 @@ class PPMEncoder {
     [7, 7],
   ];
 
-  zigZagArrangement(List<List<int>> items) {
-    int getPosFromIndex(int i, int j) {
-      for (int i = 0; i < zigZag.length; i++) {
-        if (zigZag[i].first == i && zigZag[i].last == j) {
-          return i;
-        }
-      }
-      return -1;
-    }
-
-    List<int> getIndexFromPos(int pos) {
-      return zigZag[pos];
-    }
-
-    StringBuffer buffer = StringBuffer();
-    int sum = 0;
-
-    zigZag.forEach((element) {
-      if (sum != (element.first + element.last)) {
-        sum = element.first + element.last;
-        buffer.writeln();
-      }
-      buffer.write('${items[element.first][element.last]} ');
-    });
-    print('蛇形:\n$buffer');
-
-    // print('${DCSizeValueCode(-8)}');
-
-    runLengthEncoding(items, 0);
+  String zigZagArrangement(List<List<int>> items, bool isLuminance) {
+    int oldPreviousDc = previousDC;
+    previousDC = items[0][0];
+    return runLengthEncoding(items, oldPreviousDc);
   }
 
-  runLengthEncoding(List<List<int>> items, int previous) {
-    DCSizeValueCode dc = DCSizeValueCode(items[0][0] - previous);
+  String runLengthEncoding(List<List<int>> items, int previousDC) {
+    DCSizeValueCode dc = DCSizeValueCode(items[0][0] - previousDC, true);
     StringBuffer buffer = StringBuffer();
     buffer
       ..write(dc.sizeCode)
-      ..write('--')
-      ..write(dc.code)
-      ..writeln();
+      // ..write('--')
+      ..write(dc.code);
+    // ..writeln();
     int sum = 1;
 
     int prefixZero = 0;
@@ -347,13 +371,13 @@ class PPMEncoder {
       List<int> element = zigZag[index];
       if (sum != (element.first + element.last)) {
         sum = element.first + element.last;
-        buffer.writeln();
+        // buffer.writeln();
       }
       int value = items[element.first][element.last];
 
       if (value == 0) {
         if (index == 63) {
-          buffer.write('$EOB ');
+          buffer.write('$EOB');
           prefixZero = 0;
           break;
         }
@@ -361,20 +385,22 @@ class PPMEncoder {
       } else {
         //当前数非0
         while (prefixZero >= 16) {
-          buffer.write('$ZRL ');
+          buffer.write('$ZRL');
           prefixZero -= 16;
         }
-        int bit = DCSizeValueCode(value).size;
+        int bit = DCSizeValueCode(value, false).size;
 
         buffer
-          ..write(ACLuminanceTable[prefixZero][bit - 1])
-          ..write('--')
-          ..write(DCSizeValueCode(value).code)
-          ..write(' ');
+              ..write(ACLuminanceTable[prefixZero][bit - 1])
+              // ..write('--')
+              ..write(DCSizeValueCode(value, false).code)
+            // ..write(' ')
+            ;
         prefixZero = 0;
       }
     }
-    print('蛇形huffman encoding:\n$buffer');
+    // print('蛇形huffman encoding:\n$buffer');
+    return buffer.toString();
   }
 
   huffmanCoding() {}
