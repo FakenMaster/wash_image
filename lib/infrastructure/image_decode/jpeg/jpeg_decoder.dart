@@ -4,9 +4,9 @@ import 'dart:typed_data';
 import 'package:wash_image/infrastructure/image_decode/decode_result.dart';
 import 'package:wash_image/infrastructure/image_decode/jpeg/jpeg_jfif.dart';
 import 'package:wash_image/infrastructure/util/haffman_encoder.dart';
+
 import '../../util/int_extension.dart';
 
-/// TODO: 最终目的：解析出RGB数据，保存ppm文件中，就是原始图像数据了
 class JPEGDecoder {
   static DecodeResult decode(Uint8List? dataBytes) {
     if (dataBytes == null || dataBytes.isEmpty) {
@@ -32,6 +32,10 @@ class _JPEGDecoderInternal {
   };
   late int maxHorizontalSampling;
   late int maxVerticalSampling;
+
+  ///[DC0 DC1]
+  ///[AC0 AC1]
+  List<List<HaffmanTable>> haffmanTables = List.generate(4, (index) => []);
 
   _JPEGDecoderInternal(this.bytes) : debugMessage = StringBuffer();
 
@@ -225,33 +229,91 @@ class _JPEGDecoderInternal {
       0: 'DC',
       1: 'AC',
     };
-    while (length > 0) {
-      int information = bytes.getUint8(offset);
-      int dCOrAC = information >> 4;
-      int number = information & 0x0f;
 
-      offset += 1;
-      debugMessage.writeln('type:${DC_AC[dCOrAC]}$number');
+    int information = bytes.getUint8(offset);
+    int dCOrAC = information >> 4;
 
-      List<int> leaves = [];
-      for (int i = 0; i < 16; i++) {
-        leaves.add(bytes.getUint8(offset + i));
-        debugMessage.write('${i + 1}位:${leaves[i].toRadix(padNum: 2)} ');
+    int number = information & 0x0f;
+
+    int haffmanTableIndex = dCOrAC * 2 + number;
+
+    offset += 1;
+    debugMessage.writeln('type:${DC_AC[dCOrAC]}$number');
+
+    List<int> codeLength = [];
+    for (int i = 0; i < 16; i++) {
+      int number = bytes.getUint8(offset + i);
+      debugMessage.write('${i + 1}位:${number.toRadix(padNum: 2)} ');
+
+      if (number != 0) {
+        codeLength.addAll(List.generate(number, (_) => i + 1));
       }
-
-      offset += 16;
-      int leafNumber = leaves.reduce((value, element) => value + element);
-
-      List<int> leafSymbol = [];
-      debugMessage.writeln('\n叶子信号源:');
-      for (int i = 0; i < leafNumber; i++) {
-        leafSymbol.add(bytes.getUint8(offset + i));
-        debugMessage.write('${leafSymbol[i].toRadix(padNum: 2)} ');
-      }
-      offset += leafNumber;
-      length -= 1 + 16 + leafNumber;
-      debugMessage.writeln('\n');
     }
+
+    offset += 16;
+    int categoryNumber = codeLength.length;
+
+    List<int> category = [];
+    debugMessage.writeln('\n叶子信号源:');
+    for (int i = 0; i < categoryNumber; i++) {
+      category.add(bytes.getUint8(offset + i));
+      debugMessage.write('${category[i].toRadix(padNum: 2)} ');
+    }
+    offset += categoryNumber;
+    length -= 1 + 16 + categoryNumber;
+    debugMessage.writeln('\n');
+
+    List<HaffmanTable> tables = [];
+    String currentCodeWord = '';
+    int lastLength = codeLength[0];
+    for (int i = 0; i < codeLength[0]; i++) {
+      currentCodeWord += '0';
+    }
+    int lastValue = 0;
+
+    addHaffmanTable(int category, String codeWord) {
+      tables.add(HaffmanTable(category: category, codeWord: codeWord));
+    }
+
+    addHaffmanTable(category[0], currentCodeWord);
+
+    for (int i = 1; i < codeLength.length; i++) {
+      int currentLength = codeLength[i];
+
+      int nowValue = (lastValue + 1) << (currentLength - lastLength);
+
+      currentCodeWord = nowValue.toRadixString(2).padLeft(currentLength, '0');
+
+      addHaffmanTable(category[i], currentCodeWord);
+
+      lastLength = currentLength;
+      lastValue = nowValue;
+    }
+
+    haffmanTables[haffmanTableIndex] = tables;
+
+    String categoryLabel = dCOrAC == 0 ? 'Category' : 'Run/Size';
+    debugMessage
+      ..write('$categoryLabel'.padRight(20, ' '))
+      ..write('Code Length'.padRight(20, ' '))
+      ..write('Code Word'.padRight(20, ' '))
+      ..writeln();
+
+    for (HaffmanTable table in tables) {
+      String categoryString = '${table.category}';
+      if (dCOrAC == 1) {
+        int run = (table.category & 0xF0) >> 4;
+        int size = (table.category & 0x0F);
+        categoryString = '$run/$size';
+      }
+
+      debugMessage
+        ..write('$categoryString'.padRight(30, ' '))
+        ..write('${table.codeWord.length}'.padRight(30, ' '))
+        ..write(table.codeWord.padRight(30, ' '))
+        ..writeln();
+    }
+
     if (length != 0) {
       return false;
     }
@@ -391,7 +453,7 @@ class _JPEGDecoderInternal {
       if (byte == 0xFF) {
         int prevByte = byte;
         byte = bytes.getUint8(offset++);
-        
+
         if (byte == 0xD9) {
           //文件结束
           debugMessage.write('\n');
@@ -428,13 +490,18 @@ class _JPEGDecoderInternal {
         scanDatas.add(element);
       }
     });
-    
 
-    debugMessage.writeln('原压缩数据:');
+    debugMessage.writeln('原压缩数据:${scanDatas.length}');
+
+    /// 因为得知下采样比例是4:2:0,所以排列是YYYYCbCr值，也就是4个Luminance，2个Chrominance
+    /// 又由解析可知，Luminance的哈夫曼表是DC0+AC0,Chrominance的哈夫曼表是DC1+AC1
+    String firstData = scanDatas[0].toRadixString(2).padLeft(8, '0');
+    String secondData = scanDatas[1].toRadixString(2).padLeft(8, '0');
     // for (var byte in scanDatas) {
-    //   debugMessage.write('${byte.toRadix(padNum:2)} ');
+    //   debugMessage.write('${byte.toRadix(padNum: 2)} ');
     // }
-    
+    print('first:$firstData');
+    print('second:$secondData');
   }
 
   /// check end of image
@@ -442,4 +509,14 @@ class _JPEGDecoderInternal {
     debugMessage.writeln('文件解析结束，剩下的内容作为无关信息');
     return true;
   }
+}
+
+class HaffmanTable {
+  /// DC:category, AC: Run/Size
+  int category;
+  String codeWord;
+  HaffmanTable({
+    required this.category,
+    required this.codeWord,
+  });
 }

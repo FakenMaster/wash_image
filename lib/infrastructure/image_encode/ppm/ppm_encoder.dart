@@ -6,6 +6,8 @@ import 'package:wash_image/infrastructure/image_encode/component.dart';
 import 'package:wash_image/infrastructure/image_encode/mcu.dart';
 import 'package:wash_image/infrastructure/image_encode/pixel.dart';
 import 'package:stringx/stringx.dart';
+import 'package:wash_image/infrastructure/image_decode/jpeg/jpeg_jfif.dart';
+import 'package:wash_image/infrastructure/util/int_extension.dart';
 
 class PPMEncoder {
   late ByteData bytes;
@@ -64,6 +66,8 @@ class PPMEncoder {
       print('Cb:\n${value.uStr}');
       print('Cr:\n${value.vStr}');
     }).toList();
+
+    convert2JPEG();
   }
 
   readFile() {
@@ -404,4 +408,12 @@ class PPMEncoder {
   }
 
   huffmanCoding() {}
+
+  convert2JPEG() {
+    StringBuffer jpeg = StringBuffer();
+
+    /// start of image:soi
+    jpeg.write('${JPEG_SOI.toRadixString(2).padLeft(8,'0')}');
+    /// APP0
+  }
 }
