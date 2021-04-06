@@ -35,7 +35,8 @@ class _JPEGDecoderInternal {
 
   ///[DC0 DC1]
   ///[AC0 AC1]
-  List<List<HaffmanTable>> haffmanTables = List.generate(4, (index) => []);
+  List<HaffmanTable> haffmanTables =
+      List.generate(4, (index) => HaffmanTable());
 
   _JPEGDecoderInternal(this.bytes) : debugMessage = StringBuffer();
 
@@ -253,29 +254,26 @@ class _JPEGDecoderInternal {
     offset += 16;
     int categoryNumber = codeLength.length;
 
-    List<int> category = [];
-    debugMessage.writeln('\n叶子信号源:');
+    List<int> categoryList = [];
+    List<String> codeWordList = [];
+    debugMessage.writeln('\n叶子信号源:数量$categoryNumber');
     for (int i = 0; i < categoryNumber; i++) {
-      category.add(bytes.getUint8(offset + i));
-      debugMessage.write('${category[i].toRadix(padNum: 2)} ');
+      categoryList.add(bytes.getUint8(offset + i));
+      debugMessage.write('${categoryList[i].toRadix(padNum: 2)} ');
     }
+
     offset += categoryNumber;
     length -= 1 + 16 + categoryNumber;
     debugMessage.writeln('\n');
 
-    List<HaffmanTable> tables = [];
     String currentCodeWord = '';
     int lastLength = codeLength[0];
     for (int i = 0; i < codeLength[0]; i++) {
       currentCodeWord += '0';
     }
+    codeWordList.add(currentCodeWord);
+
     int lastValue = 0;
-
-    addHaffmanTable(int category, String codeWord) {
-      tables.add(HaffmanTable(category: category, codeWord: codeWord));
-    }
-
-    addHaffmanTable(category[0], currentCodeWord);
 
     for (int i = 1; i < codeLength.length; i++) {
       int currentLength = codeLength[i];
@@ -283,14 +281,13 @@ class _JPEGDecoderInternal {
       int nowValue = (lastValue + 1) << (currentLength - lastLength);
 
       currentCodeWord = nowValue.toRadixString(2).padLeft(currentLength, '0');
-
-      addHaffmanTable(category[i], currentCodeWord);
+      codeWordList.add(currentCodeWord);
 
       lastLength = currentLength;
       lastValue = nowValue;
     }
 
-    haffmanTables[haffmanTableIndex] = tables;
+    haffmanTables[haffmanTableIndex] = HaffmanTable(categoryList, codeWordList);
 
     String categoryLabel = dCOrAC == 0 ? 'Category' : 'Run/Size';
     debugMessage
@@ -299,24 +296,23 @@ class _JPEGDecoderInternal {
       ..write('Code Word'.padRight(20, ' '))
       ..writeln();
 
-    for (HaffmanTable table in tables) {
-      String categoryString = '${table.category}';
+    for (int i = 0; i < categoryList.length; i++) {
+      int category = categoryList[i];
+      String codeWord = codeWordList[i];
+      String categoryString = '$category';
       if (dCOrAC == 1) {
-        int run = (table.category & 0xF0) >> 4;
-        int size = (table.category & 0x0F);
+        int run = (category & 0xF0) >> 4;
+        int size = (category & 0x0F);
         categoryString = '$run/$size';
       }
 
       debugMessage
         ..write('$categoryString'.padRight(30, ' '))
-        ..write('${table.codeWord.length}'.padRight(30, ' '))
-        ..write(table.codeWord.padRight(30, ' '))
+        ..write('${codeWord.length}'.padRight(30, ' '))
+        ..write(codeWord.padRight(30, ' '))
         ..writeln();
     }
 
-    if (length != 0) {
-      return false;
-    }
     return true;
   }
 
@@ -495,13 +491,222 @@ class _JPEGDecoderInternal {
 
     /// 因为得知下采样比例是4:2:0,所以排列是YYYYCbCr值，也就是4个Luminance，2个Chrominance
     /// 又由解析可知，Luminance的哈夫曼表是DC0+AC0,Chrominance的哈夫曼表是DC1+AC1
-    String firstData = scanDatas[0].toRadixString(2).padLeft(8, '0');
-    String secondData = scanDatas[1].toRadixString(2).padLeft(8, '0');
-    // for (var byte in scanDatas) {
-    //   debugMessage.write('${byte.toRadix(padNum: 2)} ');
-    // }
-    print('first:$firstData');
-    print('second:$secondData');
+    String dataString = scanDatas
+        .map((e) => e.binaryString)
+        .reduce((value, element) => value + element);
+    // return;
+    int dataIndex = 0;
+    int lastDC = 0;
+
+    /// 获取值的表：
+    /// https://www.w3.org/Graphics/JPEG/itu-t81.pdf 139页的
+    /// Table H.2 – Difference categories for lossless Huffman coding
+    int getValueByCategory(String inputValueCode) {
+      int signal = 1;
+      String valueCode = '';
+      if (inputValueCode.startsWith('0')) {
+        signal = -1;
+        // 说明是负数，取反计算对应的正数值
+        for (int j = 0; j < inputValueCode.length; j++) {
+          valueCode += inputValueCode[j] == '0' ? '1' : '0';
+        }
+      } else {
+        valueCode = inputValueCode;
+      }
+
+      return signal * int.parse(valueCode, radix: 2);
+    }
+
+    int getDCValue(HaffmanTable table) {
+      int index = 0;
+      while (true) {
+        String codeWord =
+            dataString.substring(dataIndex, dataIndex + index + 1);
+        if (table.codeWord.contains(codeWord)) {
+          dataIndex += index + 1;
+          // 计算DC值
+          int category = table.category[table.codeWord.indexOf(codeWord)];
+
+          int dcValue = category == 0
+              ? 0
+              : getValueByCategory(
+                      dataString.substring(dataIndex, dataIndex + category)) +
+                  lastDC;
+          lastDC = dcValue;
+          dataIndex += category;
+          return lastDC;
+        } else {
+          index++;
+        }
+      }
+    }
+
+    List<int> getACValue(HaffmanTable table) {
+      int index = 0;
+      List<int> result = [];
+      while (true) {
+        String codeWord =
+            dataString.substring(dataIndex, dataIndex + index + 1);
+
+        if (table.codeWord.contains(codeWord)) {
+          dataIndex += index + 1;
+          int category = table.category[table.codeWord.indexOf(codeWord)];
+
+          /// run表示前面有几个值是0
+          int run = (category & 0xf0) >> 4;
+
+          /// 这表示后面取几个bit表示值
+          int size = category & 0x0f;
+
+          if (run == 0 && size == 0) {
+            result.addAll(List.generate(63 - result.length, (index) => 0));
+          } else {
+            result.addAll(List.generate(run, (_) => 0));
+
+            int value = size == 0
+                ? 0
+                : getValueByCategory(
+                    dataString.substring(dataIndex, dataIndex + size));
+
+            result.add(value);
+          }
+          dataIndex += size;
+          index = 0;
+          if (result.length == 63) {
+            break;
+          }
+        } else {
+          index++;
+        }
+      }
+
+      return result;
+    }
+
+    print('width:$widthPixel, height:$heightPixel');
+    int w = (widthPixel / 16).ceil();
+    int h = (heightPixel / 16).ceil();
+
+    int all = w * h;
+    int length = 1;
+
+    final zigZag = [
+      // [0,0],
+      // [0,1],[1,0],
+      // [2,0],[1,1],[0,2],
+      // [0,3],[1,2],[2,1],[3,0],
+      // [4,0],[3,1],[2,2],[1,3],[0,4],
+      // [0,5],[1,4],[2,3],[3,2],[4,1],[5,0],
+      // [6,0],[5,1],[4,2],[3,3],[2,4],[1,5],[0,6],
+      // [0,7],[1,6],[2,5],[3,4],[4,3],[5,2],[6,1],[7,0],
+      // [7,1],[6,2],[5,3],[4,4],[3,5],[2,6],[1,7],
+      // [2,7],[3,6],[4,5],[5,4],[6,3],[7,2],
+      // [7,3],[6,4],[5,5],[4,6],[3,7],
+      // [4,7],[5,6],[6,5],[7,4],
+      // [7,5],[6,6],[5,7],
+      // [6,7],[7,6],
+      // [7,7],
+      [0, 0],
+      [0, 1], [1, 0],
+      [2, 0], [1, 1], [0, 2],
+      [0, 3], [1, 2], [2, 1], [3, 0],
+      [4, 0], [3, 1], [2, 2], [1, 3], [0, 4],
+      [0, 5], [1, 4], [2, 3], [3, 2], [4, 1], [5, 0],
+      [6, 0], [5, 1], [4, 2], [3, 3], [2, 4], [1, 5], [0, 6],
+      [0, 7], [1, 6], [2, 5], [3, 4], [4, 3], [5, 2], [6, 1], [7, 0],
+      [7, 1], [6, 2], [5, 3], [4, 4], [3, 5], [2, 6], [1, 7],
+      [2, 7], [3, 6], [4, 5], [5, 4], [6, 3], [7, 2],
+      [7, 3], [6, 4], [5, 5], [4, 6], [3, 7],
+      [4, 7], [5, 6], [6, 5], [7, 4],
+      [7, 5], [6, 6], [5, 7],
+      [6, 7], [7, 6],
+      [7, 7],
+    ];
+
+    List<MCU> mcus = [];
+
+    while (dataIndex < dataString.length) {
+      List<List<List<int>>> luminance = List.generate(
+          4,
+          (index) =>
+              List.generate(8, (index) => List.generate(8, (index) => 0)));
+
+      List<List<List<int>>> chrominance = List.generate(
+          2,
+          (index) =>
+              List.generate(8, (index) => List.generate(8, (index) => 0)));
+
+      for (int i = 0; i < 4; i++) {
+        if (mcus.length < 1) {
+          debugMessage.writeln('Y${i + 1}:');
+        }
+
+        List<List<int>> pixels =
+            List.generate(8, (index) => List.generate(8, (index) => 0));
+
+        /// DC值
+        int dcValue = getDCValue(haffmanTables[0]);
+
+        pixels[0][0] = dcValue;
+
+        /// AC值
+        List<int> acValues = getACValue(haffmanTables[2]);
+
+        luminance[i][0][0] = dcValue;
+        for (int j = 0; j < acValues.length; j++) {
+          List<int> position = zigZag[j + 1];
+          luminance[i][position[0]][position[1]] = acValues[j];
+        }
+
+        if (mcus.length < 1) {
+          debugMessage.write('$dcValue ');
+          acValues.forEach((element) {
+            debugMessage.write('$element ');
+          });
+          debugMessage.writeln("\n");
+        }
+      }
+
+      List<String> chrom = ['Cb', 'Cr'];
+      for (int i = 0; i < 2; i++) {
+        // debugMessage.writeln('${chrom[i]}:');
+
+        /// DC值
+        int dcValue = getDCValue(haffmanTables[1]);
+
+        /// AC值
+        List<int> acValues = getACValue(haffmanTables[3]);
+
+        chrominance[i][0][0] = dcValue;
+
+        for (int j = 0; j < acValues.length; j++) {
+          List<int> position = zigZag[j + 1];
+          chrominance[i][position[0]][position[1]] = acValues[j];
+        }
+
+        // debugMessage.write('$dcValue ');
+        // acValues.forEach((element) {
+        //   debugMessage.write('$element ');
+        // });
+        // debugMessage.writeln('\n');
+      }
+
+      mcus.add(MCU(Y: luminance, Cb: chrominance[0], Cr: chrominance[1]));
+
+      if ((length++) == all) {
+        //解析结束，剩下的都是多余填充的0，不作数
+        print('$dataIndex === ${dataString.length}');
+        break;
+      }
+    }
+
+    debugMessage.writeln('MCU个数:${mcus.length}:$w*$h');
+    MCU mcu = mcus[0];
+    debugMessage.write('${mcu.Y[0][0][0]} ');
+    mcu.Y[0].forEach((element) {
+      debugMessage.write('$element ');
+    });
+    debugMessage.writeln("\n");
   }
 
   /// check end of image
@@ -511,12 +716,28 @@ class _JPEGDecoderInternal {
   }
 }
 
-class HaffmanTable {
-  /// DC:category, AC: Run/Size
-  int category;
-  String codeWord;
-  HaffmanTable({
-    required this.category,
-    required this.codeWord,
+extension BinaryIntX on int {
+  String get binaryString {
+    return this.toRadixString(2).padLeft(8, '0');
+  }
+}
+
+class MCU {
+  List<List<List<int>>> Y;
+  List<List<int>> Cb;
+  List<List<int>> Cr;
+  MCU({
+    required this.Y,
+    required this.Cb,
+    required this.Cr,
   });
+}
+
+class HaffmanTable {
+  List<int> category;
+  List<String> codeWord;
+  HaffmanTable([
+    this.category = const [],
+    this.codeWord = const [],
+  ]);
 }
