@@ -1,11 +1,15 @@
+import 'dart:html';
+import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart';
 import 'package:wash_image/infrastructure/image_decode/decode_result.dart';
 import 'package:wash_image/infrastructure/image_decode/jpeg/jpeg_jfif.dart';
 import 'package:wash_image/infrastructure/util/haffman_encoder.dart';
 
 import '../../util/int_extension.dart';
+import 'package:stringx/stringx.dart';
 
 class JPEGDecoder {
   static DecodeResult decode(Uint8List? dataBytes) {
@@ -32,6 +36,10 @@ class _JPEGDecoderInternal {
   };
   late int maxHorizontalSampling;
   late int maxVerticalSampling;
+
+  /// Quantization Tables
+  List<List<List<int>>> quantizationTables = List.generate(2,
+      (index) => List.generate(8, (index) => List.generate(8, (index) => 0)));
 
   ///[DC0 DC1]
   ///[AC0 AC1]
@@ -205,7 +213,11 @@ class _JPEGDecoderInternal {
       for (int i = 0; i < 64; i++) {
         for (int j = 0; j < size; j++) {
           int value = bytes.getUint8(offset + 1 + i * size + j);
-          debugMessage.write('${value.toRadix(padNum: 2)} ');
+          debugMessage.write('$value ');
+          if (i % 8 == 7) {
+            debugMessage.write('\n');
+          }
+          quantizationTables[id][i ~/ 8][i % 8] = value;
         }
       }
 
@@ -584,10 +596,10 @@ class _JPEGDecoderInternal {
     }
 
     print('width:$widthPixel, height:$heightPixel');
-    int w = (widthPixel / 16).ceil();
-    int h = (heightPixel / 16).ceil();
+    int mcuColumn = (widthPixel / 16).ceil();
+    int mcuLine = (heightPixel / 16).ceil();
 
-    int all = w * h;
+    int all = mcuColumn * mcuLine;
     int length = 1;
 
     final zigZag = [
@@ -637,10 +649,6 @@ class _JPEGDecoderInternal {
               List.generate(8, (index) => List.generate(8, (index) => 0)));
 
       for (int i = 0; i < 4; i++) {
-        if (mcus.length < 1) {
-          debugMessage.writeln('Y${i + 1}:');
-        }
-
         List<List<int>> pixels =
             List.generate(8, (index) => List.generate(8, (index) => 0));
 
@@ -657,20 +665,9 @@ class _JPEGDecoderInternal {
           List<int> position = zigZag[j + 1];
           luminance[i][position[0]][position[1]] = acValues[j];
         }
-
-        if (mcus.length < 1) {
-          debugMessage.write('$dcValue ');
-          acValues.forEach((element) {
-            debugMessage.write('$element ');
-          });
-          debugMessage.writeln("\n");
-        }
       }
 
-      List<String> chrom = ['Cb', 'Cr'];
       for (int i = 0; i < 2; i++) {
-        // debugMessage.writeln('${chrom[i]}:');
-
         /// DC值
         int dcValue = getDCValue(haffmanTables[1]);
 
@@ -683,12 +680,6 @@ class _JPEGDecoderInternal {
           List<int> position = zigZag[j + 1];
           chrominance[i][position[0]][position[1]] = acValues[j];
         }
-
-        // debugMessage.write('$dcValue ');
-        // acValues.forEach((element) {
-        //   debugMessage.write('$element ');
-        // });
-        // debugMessage.writeln('\n');
       }
 
       mcus.add(MCU(Y: luminance, Cb: chrominance[0], Cr: chrominance[1]));
@@ -700,13 +691,174 @@ class _JPEGDecoderInternal {
       }
     }
 
-    debugMessage.writeln('MCU个数:${mcus.length}:$w*$h');
+    /// 反量化:origin/qt = value;
+    List<List<int>> inverseQT(List<List<int>> input, List<List<int>> qTable) {
+      List<List<int>> result =
+          List.generate(8, (index) => List.generate(8, (index) => 0));
+      for (int i = 0; i < 8; i++) {
+        for (int j = 0; j < 8; j++) {
+          result[i][j] = input[i][j] * qTable[i][j];
+        }
+      }
+      return result;
+    }
+
+    /// 反离散余弦转换
+    List<List<int>> inverseDCT(List<List<int>> input) {
+      double c(int value) {
+        return value == 0 ? 1 / sqrt2 : 1;
+      }
+
+      int d(int x, int y, List<List<int>> origin) {
+        int N = 8;
+        double value = 0;
+        for (int u = 0; u < N; u++) {
+          for (int v = 0; v < N; v++) {
+            value += c(u) *
+                c(v) *
+                origin[u][v] *
+                cos((2 * x + 1) * u * pi / 16) *
+                cos((2 * y + 1) * v * pi / 16);
+          }
+        }
+        return (value / 4).round();
+      }
+
+      // 最后还原值加上128
+      return input
+          .mapWithIndex((i, lineItems) =>
+              lineItems.mapWithIndex((j, value) => d(i, j, input)).toList())
+          .toList();
+    }
+
+    for (int i = 0; i < mcus.length; i++) {
+      MCU mcu = mcus[i];
+
+      /// 对所有的值进行反量化:Luminance对应table0，Chrominance对应table1
+      for (int ySize = 0; ySize < mcu.Y.length; ySize++) {
+        mcu.Y[ySize] = inverseQT(mcu.Y[ySize], quantizationTables[0]);
+      }
+      mcu.Cb = inverseQT(mcu.Cb, quantizationTables[1]);
+      mcu.Cr = inverseQT(mcu.Cr, quantizationTables[1]);
+
+      /// 反DCT
+      for (int ySize = 0; ySize < mcu.Y.length; ySize++) {
+        mcu.Y[ySize] = inverseDCT(mcu.Y[ySize]);
+      }
+      mcu.Cb = inverseDCT(mcu.Cb);
+      mcu.Cr = inverseDCT(mcu.Cr);
+    }
+
+    debugMessage.writeln('MCU个数:${mcus.length}:$mcuColumn*$mcuLine');
     MCU mcu = mcus[0];
-    debugMessage.write('${mcu.Y[0][0][0]} ');
+    debugMessage.writeln('第一个MCU ');
     mcu.Y[0].forEach((element) {
       debugMessage.write('$element ');
     });
     debugMessage.writeln("\n");
+
+    List<List<int>> yPixels = List.generate(
+        mcuLine * 16, (index) => List.generate(mcuColumn * 16, (index) => 0));
+
+    List<List<int>> uPixels = List.generate(
+        mcuLine * 16, (index) => List.generate(mcuColumn * 16, (index) => 0));
+
+    List<List<int>> vPixels = List.generate(
+        mcuLine * 16, (index) => List.generate(mcuColumn * 16, (index) => 0));
+
+    List<List<int>> rPixels = List.generate(
+        mcuLine * 16, (index) => List.generate(mcuColumn * 16, (index) => 0));
+
+    List<List<int>> gPixels = List.generate(
+        mcuLine * 16, (index) => List.generate(mcuColumn * 16, (index) => 0));
+
+    List<List<int>> bPixels = List.generate(
+        mcuLine * 16, (index) => List.generate(mcuColumn * 16, (index) => 0));
+
+    /// 还原Y/U/V值
+    for (int i = 0; i < mcus.length; i++) {
+      /// 因为每个mcu有四个Y,1个Cb,一个Cr
+      MCU mcu = mcus[i];
+      int line = i ~/ mcuColumn * 16;
+      int column = i % mcuLine * 16;
+
+      for (int j = 0; j < 4; j++) {
+        mcu.Y[j]
+            .mapWithIndex(
+                (indexLine, list) => list.mapWithIndex((indexColumn, value) {
+                      int nowLine = line + 8 * (j ~/ 2) + indexLine;
+                      int nowColumn = column + 8 * (j ~/ 2) + indexColumn;
+                      yPixels[nowLine][nowColumn] = value;
+                    }))
+            .toList();
+      }
+
+      mcu.Cb.mapWithIndex(
+          (indexLine, list) => list.mapWithIndex((indexColumn, value) {
+                int nowLine = line + indexLine * 2;
+                int nowColumn = column + indexColumn * 2;
+                uPixels[nowLine][nowColumn] = uPixels[nowLine + 1][nowColumn] =
+                    uPixels[nowLine][nowColumn + 1] =
+                        uPixels[nowLine + 1][nowColumn + 1] = value;
+              })).toList();
+
+      mcu.Cr.mapWithIndex(
+          (indexLine, list) => list.mapWithIndex((indexColumn, value) {
+                int nowLine = line + indexLine * 2;
+                int nowColumn = column + indexColumn * 2;
+                vPixels[nowLine][nowColumn] = vPixels[nowLine + 1][nowColumn] =
+                    vPixels[nowLine][nowColumn + 1] =
+                        vPixels[nowLine + 1][nowColumn + 1] = value;
+              })).toList();
+    }
+
+    /// 还原RGB值
+    // int R = (Y + 1.402 * (Cr - 128)).round();
+    // int G = (Y - 0.34414 * (Cb - 128) - 0.71414 * (Cr - 128)).round();
+    // int B = (Y + 1.772 * (Cb - 128)).round();
+    int getR(int Y, int Cb, int Cr) {
+      return (Y + 1.402 * (Cr - 128)).round();
+    }
+
+    int getG(int Y, int Cb, int Cr) {
+      return (Y - 0.34414 * (Cb - 128) - 0.71414 * (Cr - 128)).round();
+    }
+
+    int getB(int Y, int Cb, int Cr) {
+      return (Y + 1.772 * (Cb - 128)).round();
+    }
+
+    for (int i = 0; i < yPixels.length; i++) {
+      for (int j = 0; j < yPixels[0].length; j++) {
+        int y = yPixels[i][j];
+        int u = uPixels[i][j];
+        int v = vPixels[i][j];
+
+        rPixels[i][j] = (getR(y, u, v)+0).limit;
+        gPixels[i][j] = (getG(y, u, v)+0).limit;
+        bPixels[i][j] = (getB(y, u, v)).limit;
+      }
+    }
+
+    StringBuffer buffer = StringBuffer();
+    buffer..writeln('P3')..writeln("$widthPixel $heightPixel")..writeln("255");
+    for (int i = 0; i < heightPixel; i++) {
+      for (int j = 0; j < widthPixel; j++) {
+        buffer
+          ..writeln("${rPixels[i][j]}")
+          ..writeln("${gPixels[i][j]}")
+          ..writeln("${bPixels[i][j]}");
+      }
+    }
+    if (kIsWeb) {
+      var blob = Blob([buffer.toString()], 'text/plain', 'native');
+
+      var anchorElement = AnchorElement(
+        href: Url.createObjectUrlFromBlob(blob).toString(),
+      )
+        ..setAttribute("download", "data.ppm")
+        ..click();
+    }
   }
 
   /// check end of image
@@ -719,6 +871,10 @@ class _JPEGDecoderInternal {
 extension BinaryIntX on int {
   String get binaryString {
     return this.toRadixString(2).padLeft(8, '0');
+  }
+
+  int get limit {
+    return min(255, max(0, this));
   }
 }
 
