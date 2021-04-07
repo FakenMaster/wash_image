@@ -727,7 +727,7 @@ class _JPEGDecoderInternal {
       // 最后还原值加上128
       return input
           .mapWithIndex((i, lineItems) =>
-              lineItems.mapWithIndex((j, value) => d(i, j, input)).toList())
+              lineItems.mapWithIndex((j, value) => (d(i, j, input)+128).limit).toList())
           .toList();
     }
 
@@ -749,12 +749,20 @@ class _JPEGDecoderInternal {
       mcu.Cr = inverseDCT(mcu.Cr);
     }
 
-    debugMessage.writeln('MCU个数:${mcus.length}:$mcuColumn*$mcuLine');
+    debugMessage.writeln(
+        'MCU个数:${mcus.length}: mcuColumn * mcuLine:$mcuColumn * $mcuLine');
     MCU mcu = mcus[0];
-    debugMessage.writeln('第一个MCU ');
-    mcu.Y[0].forEach((element) {
-      debugMessage.write('$element ');
+    debugMessage.writeln('第一个Cb');
+    mcu.Cb.forEach((element) {
+      debugMessage.writeln('$element ');
     });
+    debugMessage.writeln("\n");
+
+    debugMessage.writeln('第一个Cr');
+    mcu.Cr.forEach((element) {
+      debugMessage.writeln('$element ');
+    });
+
     debugMessage.writeln("\n");
 
     List<List<int>> yPixels = List.generate(
@@ -779,38 +787,83 @@ class _JPEGDecoderInternal {
     for (int i = 0; i < mcus.length; i++) {
       /// 因为每个mcu有四个Y,1个Cb,一个Cr
       MCU mcu = mcus[i];
-      int line = i ~/ mcuColumn * 16;
-      int column = i % mcuLine * 16;
+      int line = (i ~/ mcuColumn) * 16;
+      int column = (i % mcuColumn) * 16;
+
+      // debugMessage.writeln('$mcuColumn * $mcuLine [$i]坐标:$line * $column');
 
       for (int j = 0; j < 4; j++) {
-        mcu.Y[j]
-            .mapWithIndex(
-                (indexLine, list) => list.mapWithIndex((indexColumn, value) {
-                      int nowLine = line + 8 * (j ~/ 2) + indexLine;
-                      int nowColumn = column + 8 * (j ~/ 2) + indexColumn;
-                      yPixels[nowLine][nowColumn] = value;
-                    }))
-            .toList();
+        for (int indexLine = 0; indexLine < mcu.Y[j].length; indexLine++) {
+          List<int> pixels = mcu.Y[j][indexLine];
+          for (int indexColumn = 0;
+              indexColumn < pixels.length;
+              indexColumn++) {
+            int value = pixels[indexColumn];
+
+            int nowLine = line + 8 * (j ~/ 2) + indexLine;
+            int nowColumn = column + 8 * (j % 2) + indexColumn;
+
+            // if ((++printSize) <= 512) {
+            //   if (printSize % 64 == 1) {
+            //     debugMessage.writeln();
+            //   }
+            //   debugMessage.writeln(
+            //       '坐标:$line * $column, $indexLine * $indexColumn, $nowLine * $nowColumn');
+            // }
+            yPixels[nowLine][nowColumn] = value;
+          }
+        }
       }
 
-      mcu.Cb.mapWithIndex(
-          (indexLine, list) => list.mapWithIndex((indexColumn, value) {
-                int nowLine = line + indexLine * 2;
-                int nowColumn = column + indexColumn * 2;
-                uPixels[nowLine][nowColumn] = uPixels[nowLine + 1][nowColumn] =
-                    uPixels[nowLine][nowColumn + 1] =
-                        uPixels[nowLine + 1][nowColumn + 1] = value;
-              })).toList();
+      for (int indexLine = 0; indexLine < mcu.Cb.length; indexLine++) {
+        List<int> pixels = mcu.Cb[indexLine];
+        for (int indexColumn = 0; indexColumn < pixels.length; indexColumn++) {
+          int value = pixels[indexColumn];
 
-      mcu.Cr.mapWithIndex(
-          (indexLine, list) => list.mapWithIndex((indexColumn, value) {
-                int nowLine = line + indexLine * 2;
-                int nowColumn = column + indexColumn * 2;
-                vPixels[nowLine][nowColumn] = vPixels[nowLine + 1][nowColumn] =
-                    vPixels[nowLine][nowColumn + 1] =
-                        vPixels[nowLine + 1][nowColumn + 1] = value;
-              })).toList();
+          int nowLine = line + indexLine * 2;
+          int nowColumn = column + indexColumn * 2;
+          uPixels[nowLine][nowColumn] = uPixels[nowLine + 1][nowColumn] =
+              uPixels[nowLine][nowColumn + 1] =
+                  uPixels[nowLine + 1][nowColumn + 1] = value;
+        }
+      }
+      for (int indexLine = 0; indexLine < mcu.Cr.length; indexLine++) {
+        List<int> pixels = mcu.Cr[indexLine];
+        for (int indexColumn = 0; indexColumn < pixels.length; indexColumn++) {
+          int value = pixels[indexColumn];
+
+          int nowLine = line + indexLine * 2;
+          int nowColumn = column + indexColumn * 2;
+          vPixels[nowLine][nowColumn] = vPixels[nowLine + 1][nowColumn] =
+              vPixels[nowLine][nowColumn + 1] =
+                  vPixels[nowLine + 1][nowColumn + 1] = value;
+        }
+      }
     }
+
+    debugMessage.writeln('还原block第一个Cb');
+
+    debugMessage.writeln("\n");
+    for (int i = 0; i < 8; i++) {
+      debugMessage.write('[');
+      for (int j = 0; j < 8; j++) {
+        debugMessage.write('${uPixels[i][j]} ');
+      }
+      debugMessage.writeln(']');
+    }
+    debugMessage.writeln();
+
+    debugMessage.writeln('还原block第一个Cr');
+
+    debugMessage.writeln("\n");
+    for (int i = 0; i < 8; i++) {
+      debugMessage.write('[');
+      for (int j = 0; j < 8; j++) {
+        debugMessage.write('${vPixels[i][j]} ');
+      }
+      debugMessage.writeln(']');
+    }
+    debugMessage.writeln();
 
     /// 还原RGB值
     // int R = (Y + 1.402 * (Cr - 128)).round();
@@ -828,28 +881,43 @@ class _JPEGDecoderInternal {
       return (Y + 1.772 * (Cb - 128)).round();
     }
 
+    debugMessage.writeln('前64个YUV值 ');
+
     for (int i = 0; i < yPixels.length; i++) {
       for (int j = 0; j < yPixels[0].length; j++) {
         int y = yPixels[i][j];
         int u = uPixels[i][j];
         int v = vPixels[i][j];
 
-        rPixels[i][j] = (getR(y, u, v)+0).limit;
-        gPixels[i][j] = (getG(y, u, v)+0).limit;
-        bPixels[i][j] = (getB(y, u, v)).limit;
+        if (i < 8 && j < 8) {
+          debugMessage
+              .writeln('${yPixels[i][j]} ${uPixels[i][j]} ${vPixels[i][j]}');
+        }
+
+        rPixels[i][j] = (getR(y, u, v));
+        gPixels[i][j] = (getG(y, u, v));
+        bPixels[i][j] = (getB(y, u, v));
       }
     }
 
     StringBuffer buffer = StringBuffer();
     buffer..writeln('P3')..writeln("$widthPixel $heightPixel")..writeln("255");
+
+    debugMessage.writeln('前64个RGB值 ');
+
     for (int i = 0; i < heightPixel; i++) {
       for (int j = 0; j < widthPixel; j++) {
         buffer
           ..writeln("${rPixels[i][j]}")
           ..writeln("${gPixels[i][j]}")
           ..writeln("${bPixels[i][j]}");
+        if (i < 8 && j < 8) {
+          debugMessage
+              .writeln('${rPixels[i][j]} ${gPixels[i][j]} ${bPixels[i][j]}');
+        }
       }
     }
+    debugMessage.writeln("\n");
     if (kIsWeb) {
       var blob = Blob([buffer.toString()], 'text/plain', 'native');
 
