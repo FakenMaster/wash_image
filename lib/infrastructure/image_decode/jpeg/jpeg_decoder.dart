@@ -21,6 +21,13 @@ class JPEGDecoder {
   }
 }
 
+/// 1.读取各种Marker，方便后续数据解压
+/// 2.读取压缩数据，根据采样比率，通常是Y Y Y Y Cb Cr，即4:2:0
+/// 3.根据DHT恢复数据
+/// 4.ZigZag还原数据顺序
+/// 5.根据DQT反量化数据
+/// 6.反DCT，还原YUV数据
+////7.YUV还原成RGB
 class _JPEGDecoderInternal {
   final ByteData bytes;
   int offset = 0;
@@ -508,7 +515,9 @@ class _JPEGDecoderInternal {
         .reduce((value, element) => value + element);
     // return;
     int dataIndex = 0;
-    int lastDC = 0;
+
+    /// Y、U、V各自有直流差分矫正变量，如果数据流中出现RSTn,那么三个颜色的矫正变量都要改变
+    List<int> lastDC = [0, 0, 0];
 
     /// 获取值的表：
     /// https://www.w3.org/Graphics/JPEG/itu-t81.pdf 139页的
@@ -529,7 +538,7 @@ class _JPEGDecoderInternal {
       return signal * int.parse(valueCode, radix: 2);
     }
 
-    int getDCValue(HaffmanTable table) {
+    int getDCValue(HaffmanTable table, int dcIndex) {
       int index = 0;
       while (true) {
         String codeWord =
@@ -543,10 +552,10 @@ class _JPEGDecoderInternal {
               ? 0
               : getValueByCategory(
                       dataString.substring(dataIndex, dataIndex + category)) +
-                  lastDC;
-          lastDC = dcValue;
+                  lastDC[dcIndex];
+          lastDC[dcIndex] = dcValue;
           dataIndex += category;
-          return lastDC;
+          return dcValue;
         } else {
           index++;
         }
@@ -571,7 +580,7 @@ class _JPEGDecoderInternal {
           int size = category & 0x0f;
 
           if (run == 0 && size == 0) {
-            result.addAll(List.generate(63 - result.length, (index) => 0));
+            result.addAll(List.generate(63 - result.length, (_) => 0));
           } else {
             result.addAll(List.generate(run, (_) => 0));
 
@@ -653,7 +662,7 @@ class _JPEGDecoderInternal {
             List.generate(8, (index) => List.generate(8, (index) => 0));
 
         /// DC值
-        int dcValue = getDCValue(haffmanTables[0]);
+        int dcValue = getDCValue(haffmanTables[0], 0);
 
         pixels[0][0] = dcValue;
 
@@ -669,7 +678,7 @@ class _JPEGDecoderInternal {
 
       for (int i = 0; i < 2; i++) {
         /// DC值
-        int dcValue = getDCValue(haffmanTables[1]);
+        int dcValue = getDCValue(haffmanTables[1], i + 1);
 
         /// AC值
         List<int> acValues = getACValue(haffmanTables[3]);
@@ -724,7 +733,6 @@ class _JPEGDecoderInternal {
         return (value / 4).round();
       }
 
-      // 最后还原值加上128
       return input
           .mapWithIndex((i, lineItems) =>
               lineItems.mapWithIndex((j, value) => (d(i, j, input)+128).limit).toList())
@@ -752,6 +760,10 @@ class _JPEGDecoderInternal {
     debugMessage.writeln(
         'MCU个数:${mcus.length}: mcuColumn * mcuLine:$mcuColumn * $mcuLine');
     MCU mcu = mcus[0];
+    debugMessage.writeln('第一个Y');
+    mcu.Y[0].forEach((element) {
+      debugMessage.writeln('$element ');
+    });
     debugMessage.writeln('第一个Cb');
     mcu.Cb.forEach((element) {
       debugMessage.writeln('$element ');
@@ -870,15 +882,15 @@ class _JPEGDecoderInternal {
     // int G = (Y - 0.34414 * (Cb - 128) - 0.71414 * (Cr - 128)).round();
     // int B = (Y + 1.772 * (Cb - 128)).round();
     int getR(int Y, int Cb, int Cr) {
-      return (Y + 1.402 * (Cr - 128)).round();
+      return (Y + 1.402 * (Cr - 128)).round().limit;
     }
 
     int getG(int Y, int Cb, int Cr) {
-      return (Y - 0.34414 * (Cb - 128) - 0.71414 * (Cr - 128)).round();
+      return (Y - 0.34414 * (Cb - 128) - 0.71414 * (Cr - 128)).round().limit;
     }
 
     int getB(int Y, int Cb, int Cr) {
-      return (Y + 1.772 * (Cb - 128)).round();
+      return (Y + 1.772 * (Cb - 128)).round().limit;
     }
 
     debugMessage.writeln('前64个YUV值 ');
@@ -942,7 +954,7 @@ extension BinaryIntX on int {
   }
 
   int get limit {
-    return min(255, max(0, this));
+    return this.clamp(0, 255);
   }
 }
 
