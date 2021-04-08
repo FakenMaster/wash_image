@@ -21,6 +21,7 @@ class PixelRGB {
   }
 }
 
+/// Y,Cr,Cb的值在[0..255]范围
 class PixelYUV {
   int Y;
   int Cb;

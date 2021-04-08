@@ -15,5 +15,12 @@ extension IntX on int {
     return '${prefix ? prefixStr : ''}$radixString';
   }
 
+  String get binaryString {
+    return this.toRadixString(2).padLeft(8, '0');
+  }
 
+  /// 无符号1个字节范围：0..255
+  int get clampUnsignedByte {
+    return this.clamp(0, 255);
+  }
 }

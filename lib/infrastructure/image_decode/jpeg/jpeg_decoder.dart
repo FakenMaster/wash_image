@@ -6,10 +6,11 @@ import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:wash_image/infrastructure/image_decode/decode_result.dart';
 import 'package:wash_image/infrastructure/image_decode/jpeg/jpeg_jfif.dart';
-import 'package:wash_image/infrastructure/util/haffman_encoder.dart';
+import 'package:wash_image/infrastructure/util/src/haffman_encoder.dart';
 
-import '../../util/int_extension.dart';
+import '../../util/src/int_extension.dart';
 import 'package:stringx/stringx.dart';
+import '../../model/model.dart';
 
 class JPEGDecoder {
   static DecodeResult decode(Uint8List? dataBytes) {
@@ -35,7 +36,13 @@ class _JPEGDecoderInternal {
   StringBuffer debugMessage;
   late int widthPixel;
   late int heightPixel;
-  List<int> scanDatas = [];
+  String dataString = '';
+
+  int mcuColumn = 0;
+  int mcuLine = 0;
+
+  List<MCU> mcus = [];
+
   late Map<int, List<List<int>>> colorSampling = {
     1: List.generate(3, (index) => List.generate(2, (index) => 0)),
     2: List.generate(3, (index) => List.generate(2, (index) => 0)),
@@ -45,8 +52,7 @@ class _JPEGDecoderInternal {
   late int maxVerticalSampling;
 
   /// Quantization Tables
-  List<List<List<int>>> quantizationTables = List.generate(2,
-      (index) => List.generate(8, (index) => List.generate(8, (index) => 0)));
+  List<Block> quantizationTables = List.generate(2, (index) => Block());
 
   ///[DC0 DC1]
   ///[AC0 AC1]
@@ -224,7 +230,7 @@ class _JPEGDecoderInternal {
           if (i % 8 == 7) {
             debugMessage.write('\n');
           }
-          quantizationTables[id][i ~/ 8][i % 8] = value;
+          quantizationTables[id].block[i ~/ 8][i % 8] = value;
         }
       }
 
@@ -457,13 +463,8 @@ class _JPEGDecoderInternal {
       });
     }
 
-    // for (int i = 0; i < verticalMCU; i++) {
-    //   for (int j = 0; j < horizontalMCU; j++) {
-    //     readMCU();
-    //   }
-    // }
     int byte = bytes.getUint8(offset++);
-
+    List<int> scanDatas = [];
     while (true) {
       if (byte == 0xFF) {
         int prevByte = byte;
@@ -510,14 +511,202 @@ class _JPEGDecoderInternal {
 
     /// 因为得知下采样比例是4:2:0,所以排列是YYYYCbCr值，也就是4个Luminance，2个Chrominance
     /// 又由解析可知，Luminance的哈夫曼表是DC0+AC0,Chrominance的哈夫曼表是DC1+AC1
-    String dataString = scanDatas
+    dataString = scanDatas
         .map((e) => e.binaryString)
         .reduce((value, element) => value + element);
-    // return;
-    int dataIndex = 0;
 
+    readMCUs();
+
+    print('width:$widthPixel, height:$heightPixel');
+    mcuColumn = (widthPixel / 16).ceil();
+    mcuLine = (heightPixel / 16).ceil();
+
+    /// 反ZigZag => 反量化 => 反离散余弦转换
+    mcus = mcus
+        .map((e) => e.zigZag().inverseQT(quantizationTables).inverseDCT())
+        .toList();
+
+    debugMessage.writeln(
+        'MCU个数:${mcus.length}: mcuColumn * mcuLine:$mcuColumn * $mcuLine');
+    MCU mcu = mcus[0];
+    debugMessage
+      ..writeln('第一个Y')
+      ..writeln('${mcu.Y}')
+      ..writeln('第一个Cb')
+      ..writeln('${mcu.Cb}')
+      ..writeln()
+      ..writeln('第一个Cr')
+      ..writeln('${mcu.Cr}')
+      ..writeln();
+
+    List<List<int>> yPixels = List.generate(
+        mcuLine * 16, (index) => List.generate(mcuColumn * 16, (index) => 0));
+
+    List<List<int>> uPixels = List.generate(
+        mcuLine * 16, (index) => List.generate(mcuColumn * 16, (index) => 0));
+
+    List<List<int>> vPixels = List.generate(
+        mcuLine * 16, (index) => List.generate(mcuColumn * 16, (index) => 0));
+
+    List<List<int>> rPixels = List.generate(
+        mcuLine * 16, (index) => List.generate(mcuColumn * 16, (index) => 0));
+
+    List<List<int>> gPixels = List.generate(
+        mcuLine * 16, (index) => List.generate(mcuColumn * 16, (index) => 0));
+
+    List<List<int>> bPixels = List.generate(
+        mcuLine * 16, (index) => List.generate(mcuColumn * 16, (index) => 0));
+
+    /// 还原Y/U/V值
+    for (int i = 0; i < mcus.length; i++) {
+      /// 因为每个mcu有四个Y,1个Cb,一个Cr
+      MCU mcu = mcus[i];
+      int line = (i ~/ mcuColumn) * 16;
+      int column = (i % mcuColumn) * 16;
+
+      // debugMessage.writeln('$mcuColumn * $mcuLine [$i]坐标:$line * $column');
+
+      for (int j = 0; j < mcu.YLength; j++) {
+        for (int indexLine = 0; indexLine < mcu.Y[j].length; indexLine++) {
+          List<int> pixels = mcu.Y[j][indexLine];
+          for (int indexColumn = 0;
+              indexColumn < pixels.length;
+              indexColumn++) {
+            int value = pixels[indexColumn];
+
+            int nowLine = line + 8 * (j ~/ 2) + indexLine;
+            int nowColumn = column + 8 * (j % 2) + indexColumn;
+            yPixels[nowLine][nowColumn] = value;
+          }
+        }
+      }
+
+      for (int indexLine = 0; indexLine < mcu.Cb.length; indexLine++) {
+        List<int> pixels = mcu.Cb[indexLine];
+        for (int indexColumn = 0; indexColumn < pixels.length; indexColumn++) {
+          int value = pixels[indexColumn];
+
+          int nowLine = line + indexLine * 2;
+          int nowColumn = column + indexColumn * 2;
+          uPixels[nowLine][nowColumn] = uPixels[nowLine + 1][nowColumn] =
+              uPixels[nowLine][nowColumn + 1] =
+                  uPixels[nowLine + 1][nowColumn + 1] = value;
+        }
+      }
+      for (int indexLine = 0; indexLine < mcu.Cr.length; indexLine++) {
+        List<int> pixels = mcu.Cr[indexLine];
+        for (int indexColumn = 0; indexColumn < pixels.length; indexColumn++) {
+          int value = pixels[indexColumn];
+
+          int nowLine = line + indexLine * 2;
+          int nowColumn = column + indexColumn * 2;
+          vPixels[nowLine][nowColumn] = vPixels[nowLine + 1][nowColumn] =
+              vPixels[nowLine][nowColumn + 1] =
+                  vPixels[nowLine + 1][nowColumn + 1] = value;
+        }
+      }
+    }
+
+    debugMessage.writeln('还原block第一个Cb');
+
+    debugMessage.writeln("\n");
+    for (int i = 0; i < 8; i++) {
+      debugMessage.write('[');
+      for (int j = 0; j < 8; j++) {
+        debugMessage.write('${uPixels[i][j]} ');
+      }
+      debugMessage.writeln(']');
+    }
+    debugMessage.writeln();
+
+    debugMessage.writeln('还原block第一个Cr');
+
+    debugMessage.writeln("\n");
+    for (int i = 0; i < 8; i++) {
+      debugMessage.write('[');
+      for (int j = 0; j < 8; j++) {
+        debugMessage.write('${vPixels[i][j]} ');
+      }
+      debugMessage.writeln(']');
+    }
+    debugMessage.writeln();
+
+    /// 还原RGB值
+    // int R = (Y + 1.402 * (Cr - 128)).round();
+    // int G = (Y - 0.34414 * (Cb - 128) - 0.71414 * (Cr - 128)).round();
+    // int B = (Y + 1.772 * (Cb - 128)).round();
+    int getR(int Y, int Cb, int Cr) {
+      return (Y + 1.402 * (Cr - 128)).round().clampUnsignedByte;
+    }
+
+    int getG(int Y, int Cb, int Cr) {
+      return (Y - 0.34414 * (Cb - 128) - 0.71414 * (Cr - 128))
+          .round()
+          .clampUnsignedByte;
+    }
+
+    int getB(int Y, int Cb, int Cr) {
+      return (Y + 1.772 * (Cb - 128)).round().clampUnsignedByte;
+    }
+
+    debugMessage.writeln('前64个YUV值 ');
+
+    for (int i = 0; i < yPixels.length; i++) {
+      for (int j = 0; j < yPixels[0].length; j++) {
+        int y = yPixels[i][j];
+        int u = uPixels[i][j];
+        int v = vPixels[i][j];
+
+        if (i < 8 && j < 8) {
+          debugMessage
+              .writeln('${yPixels[i][j]} ${uPixels[i][j]} ${vPixels[i][j]}');
+        }
+
+        rPixels[i][j] = (getR(y, u, v));
+        gPixels[i][j] = (getG(y, u, v));
+        bPixels[i][j] = (getB(y, u, v));
+      }
+    }
+
+    StringBuffer buffer = StringBuffer();
+    buffer..writeln('P3')..writeln("$widthPixel $heightPixel")..writeln("255");
+
+    debugMessage.writeln('前64个RGB值 ');
+
+    for (int i = 0; i < heightPixel; i++) {
+      for (int j = 0; j < widthPixel; j++) {
+        buffer
+          ..writeln("${rPixels[i][j]}")
+          ..writeln("${gPixels[i][j]}")
+          ..writeln("${bPixels[i][j]}");
+        if (i < 8 && j < 8) {
+          debugMessage
+              .writeln('${rPixels[i][j]} ${gPixels[i][j]} ${bPixels[i][j]}');
+        }
+      }
+    }
+    debugMessage.writeln("\n");
+    if (kIsWeb) {
+      var blob = Blob([buffer.toString()], 'text/plain', 'native');
+
+      var anchorElement = AnchorElement(
+        href: Url.createObjectUrlFromBlob(blob).toString(),
+      )
+        ..setAttribute("download", "data.ppm")
+        ..click();
+    }
+  }
+
+  /// check end of image
+  bool getEOI() {
+    debugMessage.writeln('文件解析结束，剩下的内容作为无关信息');
+    return true;
+  }
+
+  readMCUs() {
     /// Y、U、V各自有直流差分矫正变量，如果数据流中出现RSTn,那么三个颜色的矫正变量都要改变
     List<int> lastDC = [0, 0, 0];
+    int dataIndex = 0;
 
     /// 获取值的表：
     /// https://www.w3.org/Graphics/JPEG/itu-t81.pdf 139页的
@@ -604,94 +793,64 @@ class _JPEGDecoderInternal {
       return result;
     }
 
-    print('width:$widthPixel, height:$heightPixel');
-    int mcuColumn = (widthPixel / 16).ceil();
-    int mcuLine = (heightPixel / 16).ceil();
-
     int all = mcuColumn * mcuLine;
     int length = 1;
 
-    final zigZag = [
-      // [0,0],
-      // [0,1],[1,0],
-      // [2,0],[1,1],[0,2],
-      // [0,3],[1,2],[2,1],[3,0],
-      // [4,0],[3,1],[2,2],[1,3],[0,4],
-      // [0,5],[1,4],[2,3],[3,2],[4,1],[5,0],
-      // [6,0],[5,1],[4,2],[3,3],[2,4],[1,5],[0,6],
-      // [0,7],[1,6],[2,5],[3,4],[4,3],[5,2],[6,1],[7,0],
-      // [7,1],[6,2],[5,3],[4,4],[3,5],[2,6],[1,7],
-      // [2,7],[3,6],[4,5],[5,4],[6,3],[7,2],
-      // [7,3],[6,4],[5,5],[4,6],[3,7],
-      // [4,7],[5,6],[6,5],[7,4],
-      // [7,5],[6,6],[5,7],
-      // [6,7],[7,6],
-      // [7,7],
-      [0, 0],
-      [0, 1], [1, 0],
-      [2, 0], [1, 1], [0, 2],
-      [0, 3], [1, 2], [2, 1], [3, 0],
-      [4, 0], [3, 1], [2, 2], [1, 3], [0, 4],
-      [0, 5], [1, 4], [2, 3], [3, 2], [4, 1], [5, 0],
-      [6, 0], [5, 1], [4, 2], [3, 3], [2, 4], [1, 5], [0, 6],
-      [0, 7], [1, 6], [2, 5], [3, 4], [4, 3], [5, 2], [6, 1], [7, 0],
-      [7, 1], [6, 2], [5, 3], [4, 4], [3, 5], [2, 6], [1, 7],
-      [2, 7], [3, 6], [4, 5], [5, 4], [6, 3], [7, 2],
-      [7, 3], [6, 4], [5, 5], [4, 6], [3, 7],
-      [4, 7], [5, 6], [6, 5], [7, 4],
-      [7, 5], [6, 6], [5, 7],
-      [6, 7], [7, 6],
-      [7, 7],
-    ];
-
-    List<MCU> mcus = [];
-
     while (dataIndex < dataString.length) {
-      List<List<List<int>>> luminance = List.generate(
-          4,
-          (index) =>
-              List.generate(8, (index) => List.generate(8, (index) => 0)));
-
-      List<List<List<int>>> chrominance = List.generate(
-          2,
-          (index) =>
-              List.generate(8, (index) => List.generate(8, (index) => 0)));
-
-      for (int i = 0; i < 4; i++) {
-        List<List<int>> pixels =
-            List.generate(8, (index) => List.generate(8, (index) => 0));
+      List<Block> luminance = List.generate(4, (index) {
+        Block result = Block();
 
         /// DC值
         int dcValue = getDCValue(haffmanTables[0], 0);
 
-        pixels[0][0] = dcValue;
-
         /// AC值
         List<int> acValues = getACValue(haffmanTables[2]);
 
-        luminance[i][0][0] = dcValue;
+        result.block[0][0] = dcValue;
         for (int j = 0; j < acValues.length; j++) {
-          List<int> position = zigZag[j + 1];
-          luminance[i][position[0]][position[1]] = acValues[j];
+          int line = (j + 1) ~/ 8;
+          int column = (j + 1) % 8;
+          result.block[line][column] = acValues[j];
         }
-      }
+        return result;
+      });
 
-      for (int i = 0; i < 2; i++) {
+      List<Block> chrominanceCb = List.generate(1, (index) {
+        Block result = Block();
+
         /// DC值
-        int dcValue = getDCValue(haffmanTables[1], i + 1);
+        int dcValue = getDCValue(haffmanTables[1], 1);
 
         /// AC值
         List<int> acValues = getACValue(haffmanTables[3]);
 
-        chrominance[i][0][0] = dcValue;
-
+        result.block[0][0] = dcValue;
         for (int j = 0; j < acValues.length; j++) {
-          List<int> position = zigZag[j + 1];
-          chrominance[i][position[0]][position[1]] = acValues[j];
+          int line = (j + 1) ~/ 8;
+          int column = (j + 1) % 8;
+          result.block[line][column] = acValues[j];
         }
-      }
+        return result;
+      });
+      List<Block> chrominanceCr = List.generate(1, (index) {
+        Block result = Block();
 
-      mcus.add(MCU(Y: luminance, Cb: chrominance[0], Cr: chrominance[1]));
+        /// DC值
+        int dcValue = getDCValue(haffmanTables[1], 2);
+
+        /// AC值
+        List<int> acValues = getACValue(haffmanTables[3]);
+
+        result.block[0][0] = dcValue;
+        for (int j = 0; j < acValues.length; j++) {
+          int line = (j + 1) ~/ 8;
+          int column = (j + 1) % 8;
+          result.block[line][column] = acValues[j];
+        }
+        return result;
+      });
+
+      mcus.add(MCU(Y: luminance, Cb: chrominanceCb, Cr: chrominanceCr));
 
       if ((length++) == all) {
         //解析结束，剩下的都是多余填充的0，不作数
@@ -699,281 +858,5 @@ class _JPEGDecoderInternal {
         break;
       }
     }
-
-    /// 反量化:origin/qt = value;
-    List<List<int>> inverseQT(List<List<int>> input, List<List<int>> qTable) {
-      List<List<int>> result =
-          List.generate(8, (index) => List.generate(8, (index) => 0));
-      for (int i = 0; i < 8; i++) {
-        for (int j = 0; j < 8; j++) {
-          result[i][j] = input[i][j] * qTable[i][j];
-        }
-      }
-      return result;
-    }
-
-    /// 反离散余弦转换
-    List<List<int>> inverseDCT(List<List<int>> input) {
-      double c(int value) {
-        return value == 0 ? 1 / sqrt2 : 1;
-      }
-
-      int d(int x, int y, List<List<int>> origin) {
-        int N = 8;
-        double value = 0;
-        for (int u = 0; u < N; u++) {
-          for (int v = 0; v < N; v++) {
-            value += c(u) *
-                c(v) *
-                origin[u][v] *
-                cos((2 * x + 1) * u * pi / 16) *
-                cos((2 * y + 1) * v * pi / 16);
-          }
-        }
-        return (value / 4).round();
-      }
-
-      return input
-          .mapWithIndex((i, lineItems) =>
-              lineItems.mapWithIndex((j, value) => (d(i, j, input)+128).limit).toList())
-          .toList();
-    }
-
-    for (int i = 0; i < mcus.length; i++) {
-      MCU mcu = mcus[i];
-
-      /// 对所有的值进行反量化:Luminance对应table0，Chrominance对应table1
-      for (int ySize = 0; ySize < mcu.Y.length; ySize++) {
-        mcu.Y[ySize] = inverseQT(mcu.Y[ySize], quantizationTables[0]);
-      }
-      mcu.Cb = inverseQT(mcu.Cb, quantizationTables[1]);
-      mcu.Cr = inverseQT(mcu.Cr, quantizationTables[1]);
-
-      /// 反DCT
-      for (int ySize = 0; ySize < mcu.Y.length; ySize++) {
-        mcu.Y[ySize] = inverseDCT(mcu.Y[ySize]);
-      }
-      mcu.Cb = inverseDCT(mcu.Cb);
-      mcu.Cr = inverseDCT(mcu.Cr);
-    }
-
-    debugMessage.writeln(
-        'MCU个数:${mcus.length}: mcuColumn * mcuLine:$mcuColumn * $mcuLine');
-    MCU mcu = mcus[0];
-    debugMessage.writeln('第一个Y');
-    mcu.Y[0].forEach((element) {
-      debugMessage.writeln('$element ');
-    });
-    debugMessage.writeln('第一个Cb');
-    mcu.Cb.forEach((element) {
-      debugMessage.writeln('$element ');
-    });
-    debugMessage.writeln("\n");
-
-    debugMessage.writeln('第一个Cr');
-    mcu.Cr.forEach((element) {
-      debugMessage.writeln('$element ');
-    });
-
-    debugMessage.writeln("\n");
-
-    List<List<int>> yPixels = List.generate(
-        mcuLine * 16, (index) => List.generate(mcuColumn * 16, (index) => 0));
-
-    List<List<int>> uPixels = List.generate(
-        mcuLine * 16, (index) => List.generate(mcuColumn * 16, (index) => 0));
-
-    List<List<int>> vPixels = List.generate(
-        mcuLine * 16, (index) => List.generate(mcuColumn * 16, (index) => 0));
-
-    List<List<int>> rPixels = List.generate(
-        mcuLine * 16, (index) => List.generate(mcuColumn * 16, (index) => 0));
-
-    List<List<int>> gPixels = List.generate(
-        mcuLine * 16, (index) => List.generate(mcuColumn * 16, (index) => 0));
-
-    List<List<int>> bPixels = List.generate(
-        mcuLine * 16, (index) => List.generate(mcuColumn * 16, (index) => 0));
-
-    /// 还原Y/U/V值
-    for (int i = 0; i < mcus.length; i++) {
-      /// 因为每个mcu有四个Y,1个Cb,一个Cr
-      MCU mcu = mcus[i];
-      int line = (i ~/ mcuColumn) * 16;
-      int column = (i % mcuColumn) * 16;
-
-      // debugMessage.writeln('$mcuColumn * $mcuLine [$i]坐标:$line * $column');
-
-      for (int j = 0; j < 4; j++) {
-        for (int indexLine = 0; indexLine < mcu.Y[j].length; indexLine++) {
-          List<int> pixels = mcu.Y[j][indexLine];
-          for (int indexColumn = 0;
-              indexColumn < pixels.length;
-              indexColumn++) {
-            int value = pixels[indexColumn];
-
-            int nowLine = line + 8 * (j ~/ 2) + indexLine;
-            int nowColumn = column + 8 * (j % 2) + indexColumn;
-
-            // if ((++printSize) <= 512) {
-            //   if (printSize % 64 == 1) {
-            //     debugMessage.writeln();
-            //   }
-            //   debugMessage.writeln(
-            //       '坐标:$line * $column, $indexLine * $indexColumn, $nowLine * $nowColumn');
-            // }
-            yPixels[nowLine][nowColumn] = value;
-          }
-        }
-      }
-
-      for (int indexLine = 0; indexLine < mcu.Cb.length; indexLine++) {
-        List<int> pixels = mcu.Cb[indexLine];
-        for (int indexColumn = 0; indexColumn < pixels.length; indexColumn++) {
-          int value = pixels[indexColumn];
-
-          int nowLine = line + indexLine * 2;
-          int nowColumn = column + indexColumn * 2;
-          uPixels[nowLine][nowColumn] = uPixels[nowLine + 1][nowColumn] =
-              uPixels[nowLine][nowColumn + 1] =
-                  uPixels[nowLine + 1][nowColumn + 1] = value;
-        }
-      }
-      for (int indexLine = 0; indexLine < mcu.Cr.length; indexLine++) {
-        List<int> pixels = mcu.Cr[indexLine];
-        for (int indexColumn = 0; indexColumn < pixels.length; indexColumn++) {
-          int value = pixels[indexColumn];
-
-          int nowLine = line + indexLine * 2;
-          int nowColumn = column + indexColumn * 2;
-          vPixels[nowLine][nowColumn] = vPixels[nowLine + 1][nowColumn] =
-              vPixels[nowLine][nowColumn + 1] =
-                  vPixels[nowLine + 1][nowColumn + 1] = value;
-        }
-      }
-    }
-
-    debugMessage.writeln('还原block第一个Cb');
-
-    debugMessage.writeln("\n");
-    for (int i = 0; i < 8; i++) {
-      debugMessage.write('[');
-      for (int j = 0; j < 8; j++) {
-        debugMessage.write('${uPixels[i][j]} ');
-      }
-      debugMessage.writeln(']');
-    }
-    debugMessage.writeln();
-
-    debugMessage.writeln('还原block第一个Cr');
-
-    debugMessage.writeln("\n");
-    for (int i = 0; i < 8; i++) {
-      debugMessage.write('[');
-      for (int j = 0; j < 8; j++) {
-        debugMessage.write('${vPixels[i][j]} ');
-      }
-      debugMessage.writeln(']');
-    }
-    debugMessage.writeln();
-
-    /// 还原RGB值
-    // int R = (Y + 1.402 * (Cr - 128)).round();
-    // int G = (Y - 0.34414 * (Cb - 128) - 0.71414 * (Cr - 128)).round();
-    // int B = (Y + 1.772 * (Cb - 128)).round();
-    int getR(int Y, int Cb, int Cr) {
-      return (Y + 1.402 * (Cr - 128)).round().limit;
-    }
-
-    int getG(int Y, int Cb, int Cr) {
-      return (Y - 0.34414 * (Cb - 128) - 0.71414 * (Cr - 128)).round().limit;
-    }
-
-    int getB(int Y, int Cb, int Cr) {
-      return (Y + 1.772 * (Cb - 128)).round().limit;
-    }
-
-    debugMessage.writeln('前64个YUV值 ');
-
-    for (int i = 0; i < yPixels.length; i++) {
-      for (int j = 0; j < yPixels[0].length; j++) {
-        int y = yPixels[i][j];
-        int u = uPixels[i][j];
-        int v = vPixels[i][j];
-
-        if (i < 8 && j < 8) {
-          debugMessage
-              .writeln('${yPixels[i][j]} ${uPixels[i][j]} ${vPixels[i][j]}');
-        }
-
-        rPixels[i][j] = (getR(y, u, v));
-        gPixels[i][j] = (getG(y, u, v));
-        bPixels[i][j] = (getB(y, u, v));
-      }
-    }
-
-    StringBuffer buffer = StringBuffer();
-    buffer..writeln('P3')..writeln("$widthPixel $heightPixel")..writeln("255");
-
-    debugMessage.writeln('前64个RGB值 ');
-
-    for (int i = 0; i < heightPixel; i++) {
-      for (int j = 0; j < widthPixel; j++) {
-        buffer
-          ..writeln("${rPixels[i][j]}")
-          ..writeln("${gPixels[i][j]}")
-          ..writeln("${bPixels[i][j]}");
-        if (i < 8 && j < 8) {
-          debugMessage
-              .writeln('${rPixels[i][j]} ${gPixels[i][j]} ${bPixels[i][j]}');
-        }
-      }
-    }
-    debugMessage.writeln("\n");
-    if (kIsWeb) {
-      var blob = Blob([buffer.toString()], 'text/plain', 'native');
-
-      var anchorElement = AnchorElement(
-        href: Url.createObjectUrlFromBlob(blob).toString(),
-      )
-        ..setAttribute("download", "data.ppm")
-        ..click();
-    }
   }
-
-  /// check end of image
-  bool getEOI() {
-    debugMessage.writeln('文件解析结束，剩下的内容作为无关信息');
-    return true;
-  }
-}
-
-extension BinaryIntX on int {
-  String get binaryString {
-    return this.toRadixString(2).padLeft(8, '0');
-  }
-
-  int get limit {
-    return this.clamp(0, 255);
-  }
-}
-
-class MCU {
-  List<List<List<int>>> Y;
-  List<List<int>> Cb;
-  List<List<int>> Cr;
-  MCU({
-    required this.Y,
-    required this.Cb,
-    required this.Cr,
-  });
-}
-
-class HaffmanTable {
-  List<int> category;
-  List<String> codeWord;
-  HaffmanTable([
-    this.category = const [],
-    this.codeWord = const [],
-  ]);
 }
