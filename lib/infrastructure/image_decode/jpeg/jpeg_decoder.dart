@@ -443,6 +443,61 @@ class _JPEGDecoderInternal {
 
     readMCUs();
 
+    MCU mcu = imageInfo.mcus[0];
+    debugMessage.writeln('Y：');
+    for (int i = 0; i < 8; i++) {
+      debugMessage.write('[');
+      for (int j = 0; j < 8; j++) {
+        debugMessage.write('${mcu.Y[0].block[i][j]}, ');
+      }
+      debugMessage.writeln(']');
+    }
+
+    debugMessage.writeln('Cb：');
+    for (int i = 0; i < 8; i++) {
+      debugMessage.write('[');
+      for (int j = 0; j < 8; j++) {
+        debugMessage.write('${mcu.Cb[0].block[i][j]}, ');
+      }
+      debugMessage.writeln(']');
+    }
+
+    debugMessage.writeln('Cr：');
+    for (int i = 0; i < 8; i++) {
+      debugMessage.write('[');
+      for (int j = 0; j < 8; j++) {
+        debugMessage.write('${mcu.Cr[0].block[i][j]}, ');
+      }
+      debugMessage.writeln(']');
+    }
+
+    mcu = mcu.zigZag();
+    debugMessage.writeln('ZigZag之后的Y：');
+    for (int i = 0; i < 8; i++) {
+      debugMessage.write('[');
+      for (int j = 0; j < 8; j++) {
+        debugMessage.write('${mcu.Y[0].block[i][j]}, ');
+      }
+      debugMessage.writeln(']');
+    }
+    debugMessage.writeln('Cb：');
+    for (int i = 0; i < 8; i++) {
+      debugMessage.write('[');
+      for (int j = 0; j < 8; j++) {
+        debugMessage.write('${mcu.Cb[0].block[i][j]}, ');
+      }
+      debugMessage.writeln(']');
+    }
+
+    debugMessage.writeln('Cr：');
+    for (int i = 0; i < 8; i++) {
+      debugMessage.write('[');
+      for (int j = 0; j < 8; j++) {
+        debugMessage.write('${mcu.Cr[0].block[i][j]}, ');
+      }
+      debugMessage.writeln(']');
+    }
+
     /// 反ZigZag => 反量化 => 反离散余弦转换
     imageInfo.mcus = imageInfo.mcus
         .map((e) => e

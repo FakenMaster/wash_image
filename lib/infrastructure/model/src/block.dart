@@ -65,10 +65,12 @@ class Block {
 
   /// Z型还原
   Block zigZag() {
-    return Block(mapWithIndex((i, list) => list.mapWithIndex((j, value) {
+    Block result = Block();
+    mapWithIndex((i, list) => list.mapWithIndex((j, value) {
           List<int> position = ZigZag[i * 8 + j];
-          return block[position[0]][position[1]];
-        }).toList()).toList());
+          result.block[position[0]][position[1]] = value;
+        }).toList()).toList();
+    return result;
   }
 
   /// 反量化:origin = input * qt;
