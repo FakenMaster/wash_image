@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'dart:html';
 import 'dart:math';
 import 'dart:typed_data';
@@ -517,39 +516,20 @@ class _JPEGDecoderInternal {
     List<List<PixelRGB>> rgbs =
         yuvs.map((list) => list.map((e) => e.convert2RGB()).toList()).toList();
 
-    // Uint8List datas = Uint8List(979 * 669 * 3 + 15)
-    List<int> datas = [
-      0x50,
-      0x36,
-      0x0A,
-      0x39,
-      0x37,
-      0x39,
-      0x20,
-      0x36,
-      0x36,
-      0x39,
-      0x0A,
-      0x32,
-      0x35,
-      0x35,
-      0x0A
-    ];
-    for (int i = 0; i < imageInfo.height; i++) {
-      for (int j = 0; j < imageInfo.width; j++) {
-        PixelRGB rgb = rgbs[i][j];
-        // buffer..writeln("${rgbs[i][j]}");
-        datas.addAll([rgb.R, rgb.G, rgb.B]);
-      }
-    }
-    debugMessage.writeln('结果大小:${datas.length},应该是:${979 * 669 * 3 + 15}');
-
     StringBuffer buffer = StringBuffer();
     buffer
-      ..writeln('P6')
+      ..writeln('P3')
       ..writeln("${imageInfo.width} ${imageInfo.height}")
-      ..writeln("255")
-      ..writeln(utf8.decode(datas, allowMalformed: true));
+      ..writeln("255");
+
+    for (int i = 0; i < imageInfo.height; i++) {
+      for (int j = 0; j < imageInfo.width; j++) {
+        buffer
+          ..write("${rgbs[i][j].R} ")
+          ..write("${rgbs[i][j].G} ")
+          ..writeln("${rgbs[i][j].B}");
+      }
+    }
 
     debugMessage.writeln('第一個8*8 Y');
     for (int i = 0; i < 8; i++) {
@@ -610,7 +590,7 @@ class _JPEGDecoderInternal {
     }
 
     if (kIsWeb) {
-      var blob = Blob([String.fromCharCodes(datas)], 'text/plain', 'native');
+      var blob = Blob([buffer.toString()], 'text/plain', 'native');
 
       var anchorElement = AnchorElement(
         href: Url.createObjectUrlFromBlob(blob).toString(),
