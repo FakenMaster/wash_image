@@ -44,6 +44,8 @@ class Block {
 
   List<List<int>> get block => _block;
 
+  static const BlockSize = 8;
+
   int item(int i, int j) => _block[i][j];
 
   void setItem(int i, int j, int value) {

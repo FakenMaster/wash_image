@@ -1,4 +1,5 @@
 import 'block.dart';
+import 'quantization_table.dart';
 
 class MCU {
   /// luminance
@@ -18,8 +19,6 @@ class MCU {
   int get CbLength => Cb.length;
   int get CrLength => Cr.length;
 
-  
-
   /// ZigZag还原数据
   MCU zigZag() {
     return MCU(
@@ -29,15 +28,15 @@ class MCU {
   }
 
   /// 反量化
-  MCU inverseQT(List<Block> quantizationTables) {
+  MCU inverseQT(Map<int,QuantizationTable> quantizationTables) {
     /// luminance quantization table: quantizationTables[0]
     /// chrominance quantization table: chrominanceTables[1]
     List<Block> resultY = [];
     List<Block> resultCb = [];
     List<Block> resultCr = [];
 
-    Block luminanceTable = quantizationTables[0];
-    Block chrominanceTable = quantizationTables[1];
+    Block luminanceTable = quantizationTables[0]!.block;
+    Block chrominanceTable = quantizationTables[1]!.block;
 
     Y.forEach((inputY) {
       resultY.add(inputY.inverseQT(luminanceTable));
