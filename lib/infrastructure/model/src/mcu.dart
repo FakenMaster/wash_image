@@ -28,49 +28,19 @@ class MCU {
   }
 
   /// 反量化
-  MCU inverseQT(Map<int,QuantizationTable> quantizationTables) {
-    /// luminance quantization table: quantizationTables[0]
-    /// chrominance quantization table: chrominanceTables[1]
-    List<Block> resultY = [];
-    List<Block> resultCb = [];
-    List<Block> resultCr = [];
-
-    Block luminanceTable = quantizationTables[0]!.block;
-    Block chrominanceTable = quantizationTables[1]!.block;
-
-    Y.forEach((inputY) {
-      resultY.add(inputY.inverseQT(luminanceTable));
-    });
-
-    Cb.forEach((inputCb) {
-      resultCb.add(inputCb.inverseQT(chrominanceTable));
-    });
-
-    Cr.forEach((inputCr) {
-      resultCr.add(inputCr.inverseQT(chrominanceTable));
-    });
-
-    return MCU(Y: resultY, Cb: resultCb, Cr: resultCr);
+  MCU inverseQT(Block yQuantizationTable, Block cbQuantizationTable,
+      Block crQuantizationTable) {
+    return MCU(
+        Y: Y.map((e) => e.inverseQT(yQuantizationTable)).toList(),
+        Cb: Cb.map((e) => e.inverseQT(cbQuantizationTable)).toList(),
+        Cr: Cr.map((e) => e.inverseQT(crQuantizationTable)).toList());
   }
 
   /// 反离散余弦变换
   MCU inverseDCT() {
-    List<Block> resultY = [];
-    List<Block> resultCb = [];
-    List<Block> resultCr = [];
-
-    Y.forEach((inputY) {
-      resultY.add(inputY.inverseDCT());
-    });
-
-    Cb.forEach((inputCb) {
-      resultCb.add(inputCb.inverseDCT());
-    });
-
-    Cr.forEach((inputCr) {
-      resultCr.add(inputCr.inverseDCT());
-    });
-
-    return MCU(Y: resultY, Cb: resultCb, Cr: resultCr);
+    return MCU(
+        Y: Y.map((e) => e.inverseDCT()).toList(),
+        Cb: Cb.map((e) => e.inverseDCT()).toList(),
+        Cr: Cr.map((e) => e.inverseDCT()).toList());
   }
 }

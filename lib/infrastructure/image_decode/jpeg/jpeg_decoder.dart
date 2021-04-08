@@ -1,5 +1,4 @@
 import 'dart:html';
-import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
 
@@ -8,10 +7,8 @@ import 'package:wash_image/infrastructure/image_decode/decode_result.dart';
 import 'package:wash_image/infrastructure/image_decode/jpeg/jpeg_jfif.dart';
 import 'package:wash_image/infrastructure/model/src/image_info.dart';
 import 'package:wash_image/infrastructure/model/src/quantization_table.dart';
-import 'package:wash_image/infrastructure/util/src/haffman_encoder.dart';
 
-import '../../util/src/int_extension.dart';
-import 'package:stringx/stringx.dart';
+import '../../util/util.dart';
 import '../../model/model.dart';
 
 class JPEGDecoder {
@@ -38,11 +35,11 @@ class _JPEGDecoderInternal {
   StringBuffer debugMessage;
   String dataString = '';
 
-  late ImageInfo imageInfo;
+  ImageInfo imageInfo;
 
-  List<MCU> mcus = [];
-
-  _JPEGDecoderInternal(this.bytes) : debugMessage = StringBuffer();
+  _JPEGDecoderInternal(this.bytes)
+      : imageInfo = ImageInfo(),
+        debugMessage = StringBuffer();
 
   DecodeResult fail() {
     result = DecodeResult.fail(debugMessage: debugMessage.toString());
@@ -67,7 +64,7 @@ class _JPEGDecoderInternal {
   /// check start of image
   bool checkSOI() {
     int soi = bytes.getUint16(offset);
-    debugMessage..writeln('结果soi: ${soi.toRadix()}')..writeln();
+    print('结果soi: ${soi.toRadix()}');
     offset += 2;
     return soi == JPEG_SOI;
   }
@@ -104,7 +101,7 @@ class _JPEGDecoderInternal {
       default:
 
         /// 其他marker
-        debugMessage.writeln('segment:${segment.toRadix()}');
+        print('segment:${segment.toRadix()}');
         return false;
     }
 
@@ -121,14 +118,14 @@ class _JPEGDecoderInternal {
     // }
 
     int remain = bytes.getUint16(offset) - 2;
-    debugMessage..writeln('app0剩下字节数:$remain')..writeln();
+    print('app0剩下字节数:$remain');
     offset += 2;
 
     int identifier = bytes.getUint32(offset);
     int suffix = bytes.getUint8(offset + 4);
     offset += 5;
     remain -= 5;
-    debugMessage..writeln('identifier: ${identifier.toRadix()}')..writeln();
+    print('identifier: ${identifier.toRadix()}');
 
     if (suffix != NULL_BYTE) {
       return false;
@@ -148,10 +145,7 @@ class _JPEGDecoderInternal {
     int version1 = bytes.getUint8(offset + 1);
     offset += 2;
     remain -= 2;
-    debugMessage
-      ..writeln(
-          'jfif版本:$version0.${version1.toRadix(padNum: 2, prefix: false)}')
-      ..writeln();
+    print('jfif版本:$version0.${version1.toRadix(padNum: 2, prefix: false)}');
 
     /// Units for the following pixel density fields
     Map<int, String> densityMessage = {
@@ -164,21 +158,20 @@ class _JPEGDecoderInternal {
     int density = bytes.getUint8(offset);
     offset += 1;
     remain -= 1;
-    debugMessage
-      ..writeln(
-          'density:${density.toRadix(padNum: 2, prefix: false)}:${densityMessage[density]}');
+    print(
+        'density:${density.toRadix(padNum: 2, prefix: false)}:${densityMessage[density]}');
 
     int xDensity = bytes.getUint16(offset);
     int yDensity = bytes.getUint16(offset + 2);
     offset += 4;
     remain -= 4;
-    debugMessage..writeln('$xDensity * $yDensity')..writeln();
+    print('$xDensity * $yDensity');
 
     int xThumbnail = bytes.getUint8(offset);
     int yThumbnail = bytes.getUint8(offset + 1);
     offset += 2;
     remain -= 2;
-    debugMessage..writeln('thumbnail:$xThumbnail * $yThumbnail');
+    print('thumbnail:$xThumbnail * $yThumbnail');
 
     /// thumbnail data :3*n 24bit RGB;with n = xThumbnail * yThumbnail
     offset += xThumbnail * yThumbnail;
@@ -187,7 +180,7 @@ class _JPEGDecoderInternal {
     if (remain != 0) {
       return false;
     }
-    debugMessage..writeln('JFIF解析成功')..writeln();
+    print('JFIF解析成功');
     return true;
   }
 
@@ -200,7 +193,7 @@ class _JPEGDecoderInternal {
   bool getDQT() {
     int length = bytes.getUint16(offset) - 2;
     offset += 2;
-    debugMessage.writeln('DQT:${JPEG_DQT.toRadix()}, 长度:$length');
+    print('DQT:${JPEG_DQT.toRadix()}, 长度:$length');
 
     while (length > 0) {
       int sizeAndID = bytes.getUint8(offset);
@@ -212,7 +205,7 @@ class _JPEGDecoderInternal {
       int size = precision == 0 ? 1 : 2;
       int qtId = sizeAndID & 0x0f;
 
-      debugMessage.writeln('precision:$precision, id:$qtId');
+      print('量化表 precision:$precision, id:$qtId');
 
       Block block = Block();
       for (int i = 0; i < 64; i++) {
@@ -223,12 +216,12 @@ class _JPEGDecoderInternal {
         block.block[i ~/ 8][i % 8] = value;
       }
 
-      imageInfo.quantizationTables[qtId] =
-          QuantizationTable(precision: precision, qtId: qtId, block: block);
+      imageInfo.quantizationTables.add(
+          QuantizationTable(precision: precision, qtId: qtId, block: block));
 
       length -= (1 + size * 64);
     }
-    debugMessage.writeln('\n');
+    print('\n');
 
     if (length != 0) {
       return false;
@@ -240,27 +233,18 @@ class _JPEGDecoderInternal {
   bool getDHT() {
     int length = bytes.getUint16(offset) - 2;
     offset += 2;
-    debugMessage.writeln('DHT:${JPEG_DHT.toRadix()}, 长度:$length');
-
-    Map<int, String> DC_AC = {
-      0: 'DC',
-      1: 'AC',
-    };
+    print('DHT:${JPEG_DHT.toRadix()}, 长度:$length');
 
     int information = bytes.getUint8(offset);
     int type = information >> 4;
 
     int number = information & 0x0f;
 
-    int haffmanTableIndex = type * 2 + number;
-
     offset += 1;
-    debugMessage.writeln('type:${DC_AC[type]}$number');
 
     List<int> codeLength = [];
     for (int i = 0; i < 16; i++) {
       int number = bytes.getUint8(offset + i);
-      debugMessage.write('${i + 1}位:${number.toRadix(padNum: 2)} ');
 
       if (number != 0) {
         codeLength.addAll(List.generate(number, (_) => i + 1));
@@ -272,15 +256,12 @@ class _JPEGDecoderInternal {
 
     List<int> categoryList = [];
     List<String> codeWordList = [];
-    debugMessage.writeln('\n叶子信号源:数量$categoryNumber');
     for (int i = 0; i < categoryNumber; i++) {
       categoryList.add(bytes.getUint8(offset + i));
-      debugMessage.write('${categoryList[i].toRadix(padNum: 2)} ');
     }
 
     offset += categoryNumber;
     length -= 1 + 16 + categoryNumber;
-    debugMessage.writeln('\n');
 
     String currentCodeWord = '';
     int lastLength = codeLength[0];
@@ -303,33 +284,10 @@ class _JPEGDecoderInternal {
       lastValue = nowValue;
     }
 
-    imageInfo.haffmanTables[haffmanTableIndex] = HaffmanTable(
+    HaffmanTable table = HaffmanTable(
         type: type, id: number, category: categoryList, codeWord: codeWordList);
-
-    String categoryLabel = type == 0 ? 'Category' : 'Run/Size';
-    debugMessage
-      ..write('$categoryLabel'.padRight(20, ' '))
-      ..write('Code Length'.padRight(20, ' '))
-      ..write('Code Word'.padRight(20, ' '))
-      ..writeln();
-
-    for (int i = 0; i < categoryList.length; i++) {
-      int category = categoryList[i];
-      String codeWord = codeWordList[i];
-      String categoryString = '$category';
-      if (type == 1) {
-        int run = (category & 0xF0) >> 4;
-        int size = (category & 0x0F);
-        categoryString = '$run/$size';
-      }
-
-      debugMessage
-        ..write('$categoryString'.padRight(30, ' '))
-        ..write('${codeWord.length}'.padRight(30, ' '))
-        ..write(codeWord.padRight(30, ' '))
-        ..writeln();
-    }
-
+    print('$table');
+    imageInfo.haffmanTables.add(table);
     return true;
   }
 
@@ -337,7 +295,7 @@ class _JPEGDecoderInternal {
   bool getSOF0() {
     int length = bytes.getUint16(offset) - 2;
     offset += 2;
-    debugMessage.writeln('SOF:${JPEG_SOF0.toRadix()}, 长度:$length');
+    print('SOF:${JPEG_SOF0.toRadix()}, 长度:$length');
     if (length != 15) {
       return false;
     }
@@ -351,8 +309,7 @@ class _JPEGDecoderInternal {
     int components = bytes.getUint8(offset); // JFIF指定颜色空间为YCbCr，所以颜色分量数量固定为3
     offset += 1;
 
-    debugMessage
-        .writeln('图片精度:$precision, 宽度:$width, 高度:$height, 颜色分量:$components');
+    print('图片精度:$precision, 宽度:$width, 高度:$height, 颜色分量:$components');
 
     Map<int, ComponentInfo> componentInfos = {};
 
@@ -364,7 +321,7 @@ class _JPEGDecoderInternal {
       int colorId = bytes.getUint8(offset);
 
       int subSample = bytes.getUint8(offset + 1);
-      int quantizationId = bytes.getUint8(offset + 2);
+      int qtId = bytes.getUint8(offset + 2);
 
       int horizontalSampling = subSample >> 4;
       int verticalSampling = subSample & 0x0f;
@@ -372,26 +329,25 @@ class _JPEGDecoderInternal {
       maxSamplingH = max(maxSamplingH, horizontalSampling);
       maxSamplingV = max(maxSamplingV, verticalSampling);
 
-      componentInfos[colorId] = ComponentInfo(
+      imageInfo.componentInfos.add(ComponentInfo(
           componentId: colorId,
           horizontalSampling: horizontalSampling,
           verticalSampling: verticalSampling,
-          qtId: quantizationId);
+          qtId: qtId));
 
       /// 对应DQT中的量化表id
-      debugMessage.writeln('${componentInfos[colorId]}');
+      print('${componentInfos[colorId]}');
       offset += 3;
     }
 
-    imageInfo = ImageInfo(
-      precision: precision,
-      width: width,
-      height: height,
-      maxSamplingH: maxSamplingH,
-      maxSamplingV: maxSamplingV,
-    );
+    imageInfo
+      ..precision = precision
+      ..width = width
+      ..height = height
+      ..maxSamplingH = maxSamplingH
+      ..maxSamplingV = maxSamplingV;
 
-    debugMessage.writeln('\n');
+    print('\n');
 
     return true;
   }
@@ -404,8 +360,7 @@ class _JPEGDecoderInternal {
     offset += 2;
 
     int number = bytes.getUint8(offset);
-    debugMessage
-        .writeln('SOS:${JPEG_SOS.toRadix()}, 长度:$length, component个数:$number');
+    print('SOS:${JPEG_SOS.toRadix()}, 长度:$length, component个数:$number');
     offset += 1;
     length -= 1 + number * 2;
 
@@ -416,27 +371,24 @@ class _JPEGDecoderInternal {
       int dc = huffmanTable >> 4;
       int ac = huffmanTable & 0x0f;
       offset += 2;
-      debugMessage.writeln(
+      print(
           '#$i huffman: componentId:$componentId=>${(componentMap[componentId] ?? '').padRight(2)}, AC$ac ++ DC$dc');
+
+      imageInfo.setComponentDCAC(componentId, dc, ac);
     }
 
     offset += 3;
     length -= 3;
-    if (length != 0) {
-      return false;
-    }
 
     /// 紧随其后，就是压缩图像的数据了
     readCompressedData();
 
-    // debugMessage.writeln('哈夫曼编码：${HaffmanEncoder.encode('go go gophers')}');
+    // print('哈夫曼编码：${HaffmanEncoder.encode('go go gophers')}');
     return true;
   }
 
   /// 读取压缩数据
   void readCompressedData() {
-    return;
-
     int byte = bytes.getUint8(offset++);
     List<int> scanDatas = [];
     while (true) {
@@ -446,7 +398,7 @@ class _JPEGDecoderInternal {
 
         if (byte == 0xD9) {
           //文件结束
-          debugMessage.write('\n');
+          print('\n');
           getEOI();
           break;
         }
@@ -481,7 +433,7 @@ class _JPEGDecoderInternal {
       }
     });
 
-    debugMessage.writeln('原压缩数据:${scanDatas.length}');
+    print('原压缩数据:${scanDatas.length}');
 
     /// 因为得知下采样比例是4:2:0,所以排列是YYYYCbCr值，也就是4个Luminance，2个Chrominance
     /// 又由解析可知，Luminance的哈夫曼表是DC0+AC0,Chrominance的哈夫曼表是DC1+AC1
@@ -492,163 +444,22 @@ class _JPEGDecoderInternal {
     readMCUs();
 
     /// 反ZigZag => 反量化 => 反离散余弦转换
-    mcus = mcus
-        .map((e) =>
-            e.zigZag().inverseQT(imageInfo.quantizationTables).inverseDCT())
+    imageInfo.mcus = imageInfo.mcus
+        .map((e) => e
+            .zigZag()
+            .inverseQT(
+                imageInfo.yQuantizationTable!.block,
+                imageInfo.cbQuantizationTable!.block,
+                imageInfo.crQuantizationTable!.block)
+            .inverseDCT())
         .toList();
 
-    debugMessage.writeln(
-        'MCU个数:${mcus.length}: mcuH * mcuV:${imageInfo.horizontalMCU} * ${imageInfo.verticalMCU}');
-    MCU mcu = mcus[0];
-    debugMessage
-      ..writeln('第一个Y')
-      ..writeln('${mcu.Y}')
-      ..writeln('第一个Cb')
-      ..writeln('${mcu.Cb}')
-      ..writeln()
-      ..writeln('第一个Cr')
-      ..writeln('${mcu.Cr}')
-      ..writeln();
-
-    List<List<int>> yPixels = List.generate(
-        mcuLine * 16, (index) => List.generate(mcuColumn * 16, (index) => 0));
-
-    List<List<int>> uPixels = List.generate(
-        mcuLine * 16, (index) => List.generate(mcuColumn * 16, (index) => 0));
-
-    List<List<int>> vPixels = List.generate(
-        mcuLine * 16, (index) => List.generate(mcuColumn * 16, (index) => 0));
-
-    List<List<int>> rPixels = List.generate(
-        mcuLine * 16, (index) => List.generate(mcuColumn * 16, (index) => 0));
-
-    List<List<int>> gPixels = List.generate(
-        mcuLine * 16, (index) => List.generate(mcuColumn * 16, (index) => 0));
-
-    List<List<int>> bPixels = List.generate(
-        mcuLine * 16, (index) => List.generate(mcuColumn * 16, (index) => 0));
-
     /// 还原Y/U/V值
-    for (int i = 0; i < mcus.length; i++) {
-      /// 因为每个mcu有四个Y,1个Cb,一个Cr
-      MCU mcu = mcus[i];
-      int line = (i ~/ mcuColumn) * 16;
-      int column = (i % mcuColumn) * 16;
-
-      // debugMessage.writeln('$mcuColumn * $mcuLine [$i]坐标:$line * $column');
-
-      for (int j = 0; j < mcu.YLength; j++) {
-        for (int indexLine = 0;
-            indexLine < mcu.Y[j].block.length;
-            indexLine++) {
-          List<int> pixels = mcu.Y[j].block[indexLine];
-          for (int indexColumn = 0;
-              indexColumn < pixels.length;
-              indexColumn++) {
-            int value = pixels[indexColumn];
-
-            int nowLine = line + 8 * (j ~/ 2) + indexLine;
-            int nowColumn = column + 8 * (j % 2) + indexColumn;
-            yPixels[nowLine][nowColumn] = value;
-          }
-        }
-      }
-
-      for (int j = 0; j < mcu.YLength; j++) {
-        for (int indexLine = 0; indexLine < mcu.Cb.length; indexLine++) {
-          List<int> pixels = mcu.Cb[j].block[indexLine];
-          for (int indexColumn = 0;
-              indexColumn < pixels.length;
-              indexColumn++) {
-            int value = pixels[indexColumn];
-
-            int nowLine = line + indexLine * 2;
-            int nowColumn = column + indexColumn * 2;
-            uPixels[nowLine][nowColumn] = uPixels[nowLine + 1][nowColumn] =
-                uPixels[nowLine][nowColumn + 1] =
-                    uPixels[nowLine + 1][nowColumn + 1] = value;
-          }
-        }
-      }
-
-      for (int j = 0; j < mcu.YLength; j++) {
-        for (int indexLine = 0; indexLine < mcu.Cr.length; indexLine++) {
-          List<int> pixels = mcu.Cr[j].block[indexLine];
-          for (int indexColumn = 0;
-              indexColumn < pixels.length;
-              indexColumn++) {
-            int value = pixels[indexColumn];
-
-            int nowLine = line + indexLine * 2;
-            int nowColumn = column + indexColumn * 2;
-            vPixels[nowLine][nowColumn] = vPixels[nowLine + 1][nowColumn] =
-                vPixels[nowLine][nowColumn + 1] =
-                    vPixels[nowLine + 1][nowColumn + 1] = value;
-          }
-        }
-      }
-    }
-
-    debugMessage.writeln('还原block第一个Cb');
-
-    debugMessage.writeln("\n");
-    for (int i = 0; i < 8; i++) {
-      debugMessage.write('[');
-      for (int j = 0; j < 8; j++) {
-        debugMessage.write('${uPixels[i][j]} ');
-      }
-      debugMessage.writeln(']');
-    }
-    debugMessage.writeln();
-
-    debugMessage.writeln('还原block第一个Cr');
-
-    debugMessage.writeln("\n");
-    for (int i = 0; i < 8; i++) {
-      debugMessage.write('[');
-      for (int j = 0; j < 8; j++) {
-        debugMessage.write('${vPixels[i][j]} ');
-      }
-      debugMessage.writeln(']');
-    }
-    debugMessage.writeln();
+    List<List<PixelYUV>> yuvs = imageInfo.yuv();
 
     /// 还原RGB值
-    // int R = (Y + 1.402 * (Cr - 128)).round();
-    // int G = (Y - 0.34414 * (Cb - 128) - 0.71414 * (Cr - 128)).round();
-    // int B = (Y + 1.772 * (Cb - 128)).round();
-    int getR(int Y, int Cb, int Cr) {
-      return (Y + 1.402 * (Cr - 128)).round().clampUnsignedByte;
-    }
-
-    int getG(int Y, int Cb, int Cr) {
-      return (Y - 0.34414 * (Cb - 128) - 0.71414 * (Cr - 128))
-          .round()
-          .clampUnsignedByte;
-    }
-
-    int getB(int Y, int Cb, int Cr) {
-      return (Y + 1.772 * (Cb - 128)).round().clampUnsignedByte;
-    }
-
-    debugMessage.writeln('前64个YUV值 ');
-
-    for (int i = 0; i < yPixels.length; i++) {
-      for (int j = 0; j < yPixels[0].length; j++) {
-        int y = yPixels[i][j];
-        int u = uPixels[i][j];
-        int v = vPixels[i][j];
-
-        if (i < 8 && j < 8) {
-          debugMessage
-              .writeln('${yPixels[i][j]} ${uPixels[i][j]} ${vPixels[i][j]}');
-        }
-
-        rPixels[i][j] = (getR(y, u, v));
-        gPixels[i][j] = (getG(y, u, v));
-        bPixels[i][j] = (getB(y, u, v));
-      }
-    }
+    List<List<PixelRGB>> rgbs =
+        yuvs.map((list) => list.map((e) => e.convert2RGB()).toList()).toList();
 
     StringBuffer buffer = StringBuffer();
     buffer
@@ -656,21 +467,73 @@ class _JPEGDecoderInternal {
       ..writeln("${imageInfo.width} ${imageInfo.height}")
       ..writeln("255");
 
-    debugMessage.writeln('前64个RGB值 ');
-
     for (int i = 0; i < imageInfo.height; i++) {
       for (int j = 0; j < imageInfo.width; j++) {
         buffer
-          ..writeln("${rPixels[i][j]}")
-          ..writeln("${gPixels[i][j]}")
-          ..writeln("${bPixels[i][j]}");
-        if (i < 8 && j < 8) {
-          debugMessage
-              .writeln('${rPixels[i][j]} ${gPixels[i][j]} ${bPixels[i][j]}');
-        }
+          ..writeln("${rgbs[i][j]}")
+          ..writeln("${rgbs[i][j]}")
+          ..writeln("${rgbs[i][j]}");
       }
     }
-    debugMessage.writeln("\n");
+
+    debugMessage.writeln('第一個8*8 Y');
+    for (int i = 0; i < 8; i++) {
+      debugMessage.write('[');
+      for (int j = 0; j < 8; j++) {
+        debugMessage.write('${yuvs[i][j].Y}, ');
+      }
+      debugMessage.writeln(']');
+    }
+
+    debugMessage.writeln('第一個8*8 Cb');
+
+    for (int i = 0; i < 8; i++) {
+      debugMessage.write('[');
+      for (int j = 0; j < 8; j++) {
+        debugMessage.write('${yuvs[i][j].Cb}, ');
+      }
+      debugMessage.writeln(']');
+    }
+
+    debugMessage.writeln('第一個8*8 Cr');
+
+    for (int i = 0; i < 8; i++) {
+      debugMessage.write('[');
+      for (int j = 0; j < 8; j++) {
+        debugMessage.write('${yuvs[i][j].Cr}, ');
+      }
+      debugMessage.writeln(']');
+    }
+
+    debugMessage.writeln('第一個8*8 R');
+    for (int i = 0; i < 8; i++) {
+      debugMessage.write('[');
+      for (int j = 0; j < 8; j++) {
+        debugMessage.write('${rgbs[i][j].R}, ');
+      }
+      debugMessage.writeln(']');
+    }
+
+    debugMessage.writeln('第一個8*8 G');
+
+    for (int i = 0; i < 8; i++) {
+      debugMessage.write('[');
+      for (int j = 0; j < 8; j++) {
+        debugMessage.write('${rgbs[i][j].G}, ');
+      }
+      debugMessage.writeln(']');
+    }
+
+    debugMessage.writeln('第一個8*8 B');
+
+    for (int i = 0; i < 8; i++) {
+      debugMessage.write('[');
+      for (int j = 0; j < 8; j++) {
+        debugMessage.write('${rgbs[i][j].B}, ');
+      }
+      debugMessage.writeln(']');
+    }
+
     if (kIsWeb) {
       var blob = Blob([buffer.toString()], 'text/plain', 'native');
 
@@ -684,7 +547,7 @@ class _JPEGDecoderInternal {
 
   /// check end of image
   bool getEOI() {
-    debugMessage.writeln('文件解析结束，剩下的内容作为无关信息');
+    print('文件解析结束，剩下的内容作为无关信息');
     return true;
   }
 
@@ -785,10 +648,10 @@ class _JPEGDecoderInternal {
         Block result = Block();
 
         /// DC值
-        int dcValue = getDCValue(haffmanTables[0], 0);
+        int dcValue = getDCValue(imageInfo.yHaffmanTable(true)!, 0);
 
         /// AC值
-        List<int> acValues = getACValue(haffmanTables[2]);
+        List<int> acValues = getACValue(imageInfo.yHaffmanTable(false)!);
 
         result.block[0][0] = dcValue;
         for (int j = 0; j < acValues.length; j++) {
@@ -803,10 +666,10 @@ class _JPEGDecoderInternal {
         Block result = Block();
 
         /// DC值
-        int dcValue = getDCValue(haffmanTables[1], 1);
+        int dcValue = getDCValue(imageInfo.cbHaffmanTable(true)!, 0);
 
         /// AC值
-        List<int> acValues = getACValue(haffmanTables[3]);
+        List<int> acValues = getACValue(imageInfo.cbHaffmanTable(false)!);
 
         result.block[0][0] = dcValue;
         for (int j = 0; j < acValues.length; j++) {
@@ -816,15 +679,15 @@ class _JPEGDecoderInternal {
         }
         return result;
       });
-      
+
       List<Block> chrominanceCr = List.generate(1, (index) {
         Block result = Block();
 
         /// DC值
-        int dcValue = getDCValue(haffmanTables[1], 2);
+        int dcValue = getDCValue(imageInfo.crHaffmanTable(true)!, 0);
 
         /// AC值
-        List<int> acValues = getACValue(haffmanTables[3]);
+        List<int> acValues = getACValue(imageInfo.crHaffmanTable(false)!);
 
         result.block[0][0] = dcValue;
         for (int j = 0; j < acValues.length; j++) {
@@ -835,9 +698,10 @@ class _JPEGDecoderInternal {
         return result;
       });
 
-      mcus.add(MCU(Y: luminance, Cb: chrominanceCb, Cr: chrominanceCr));
+      imageInfo.mcus
+          .add(MCU(Y: luminance, Cb: chrominanceCb, Cr: chrominanceCr));
 
-      if ((length++) == imageInfo.mcuNumber) {
+      if ((++length) == imageInfo.mcuNumber) {
         //解析结束，剩下的都是多余填充的0，不作数
         print('$dataIndex === ${dataString.length}');
         break;

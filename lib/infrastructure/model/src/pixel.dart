@@ -1,3 +1,5 @@
+import '../../util/util.dart';
+
 class PixelRGB {
   int R;
   int G;
@@ -33,9 +35,9 @@ class PixelYUV {
   );
 
   PixelRGB convert2RGB() {
-    int R = (Y + 1.402 * (Cr - 128)).round();
-    int G = (Y - 0.34414 * (Cb - 128) - 0.71414 * (Cr - 128)).round();
-    int B = (Y + 1.772 * (Cb - 128)).round();
+    int R = (Y + 1.402 * (Cr - 128)).round().clampUnsignedByte;
+    int G = (Y - 0.34414 * (Cb - 128) - 0.71414 * (Cr - 128)).round().clampUnsignedByte;
+    int B = (Y + 1.772 * (Cb - 128)).round().clampUnsignedByte;
     return PixelRGB(R, G, B);
   }
 
