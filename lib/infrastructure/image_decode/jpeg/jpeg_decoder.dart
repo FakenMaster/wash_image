@@ -525,9 +525,9 @@ class _JPEGDecoderInternal {
     for (int i = 0; i < imageInfo.height; i++) {
       for (int j = 0; j < imageInfo.width; j++) {
         buffer
-          ..writeln("${rgbs[i][j]}")
-          ..writeln("${rgbs[i][j]}")
-          ..writeln("${rgbs[i][j]}");
+          ..writeln("${rgbs[i][j].R}")
+          ..writeln("${rgbs[i][j].G}")
+          ..writeln("${rgbs[i][j].B}");
       }
     }
 
@@ -721,7 +721,7 @@ class _JPEGDecoderInternal {
         Block result = Block();
 
         /// DC值
-        int dcValue = getDCValue(imageInfo.cbHaffmanTable(true)!, 0);
+        int dcValue = getDCValue(imageInfo.cbHaffmanTable(true)!, 1);
 
         /// AC值
         List<int> acValues = getACValue(imageInfo.cbHaffmanTable(false)!);
@@ -739,7 +739,7 @@ class _JPEGDecoderInternal {
         Block result = Block();
 
         /// DC值
-        int dcValue = getDCValue(imageInfo.crHaffmanTable(true)!, 0);
+        int dcValue = getDCValue(imageInfo.crHaffmanTable(true)!, 2);
 
         /// AC值
         List<int> acValues = getACValue(imageInfo.crHaffmanTable(false)!);
