@@ -19,7 +19,7 @@ class PixelRGB {
 
   @override
   String toString() {
-    return "($R, $G, $B)";
+    return "$R $G $B";
   }
 }
 
