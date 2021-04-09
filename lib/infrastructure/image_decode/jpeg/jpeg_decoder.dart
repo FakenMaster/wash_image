@@ -643,9 +643,16 @@ class _JPEGDecoderInternal {
       }
     }
 
+    bool visit = false;
     List<int> getACValue(HaffmanTable table) {
       int acLength = 1;
       List<int> result = [];
+      if (imageInfo.mcus.length == 1999 && !visit) {
+        visit = true;
+        print('之前:527222-527226:   ${dataString.substring(527222, 527226)}');
+        print(
+            '开始读取位置:$dataIndex,${dataString.substring(dataIndex, dataIndex + 36)}');
+      }
       while (true) {
         String codeWord = dataString.substring(dataIndex, dataIndex + acLength);
 
