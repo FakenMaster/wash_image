@@ -22,6 +22,7 @@ class HaffmanTable {
     StringBuffer buffer = StringBuffer();
     String categoryLabel = type == 0 ? 'Category' : 'Run/Size';
     buffer
+      ..writeln('type:${type==0?'DC':'AC'}$id')
       ..write('$categoryLabel'.padRight(20, ' '))
       ..write('Code Length'.padRight(20, ' '))
       ..writeln('Code Word'.padRight(20, ' '));
@@ -39,7 +40,6 @@ class HaffmanTable {
         ..write('$categoryString'.padRight(30, ' '))
         ..write('${codeWordValue.length}'.padRight(30, ' '))
         ..write(codeWordValue.padRight(30, ' '))
-        ..writeln()
         ..writeln();
     }).toList();
 

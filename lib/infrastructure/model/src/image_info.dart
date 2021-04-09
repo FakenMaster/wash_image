@@ -94,6 +94,8 @@ class ImageInfo {
     int mcuLinePixels = maxSamplingV * 8;
     int mcuColumnPixels = maxSamplingH * 8;
 
+    print('MCU 行*列:$lineMCU * $columnMCU');
+    
     List<List<int>> yPixels = List.generate(lineMCU * mcuLinePixels,
         (index) => List.generate(columnMCU * mcuColumnPixels, (index) => 0));
     List<List<int>> uPixels = List.generate(lineMCU * mcuLinePixels,

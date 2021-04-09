@@ -27,6 +27,15 @@ class MCU {
         Cr: Cr.map((e) => e.zigZag()).toList());
   }
 
+  // /// 隔行正负取反
+  // MCU negative() {
+  //   return MCU(
+  //     Y: Y.map((e) => e.negative()).toList(),
+  //     Cb: Cb.map((e) => e.negative()).toList(),
+  //     Cr: Cr.map((e) => e.negative()).toList(),
+  //   );
+  // }
+
   /// 反量化
   MCU inverseQT(Block yQuantizationTable, Block cbQuantizationTable,
       Block crQuantizationTable) {

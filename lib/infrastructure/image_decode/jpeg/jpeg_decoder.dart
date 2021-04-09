@@ -433,7 +433,14 @@ class _JPEGDecoderInternal {
       }
     });
 
-    print('原压缩数据:${scanDatas.length}');
+    for (int i = 0; i < scanDatas.length; i++) {
+      if (scanDatas[i] == 0xFF) {
+        if (i + 1 < scanDatas.length && scanDatas[i + 1] == 0xD0) {
+          print('--------已读个数:$i, 位数:${i * 8},当前这个标志位是说开始换DC吗????');
+          break;
+        }
+      }
+    }
 
     /// 因为得知下采样比例是4:2:0,所以排列是YYYYCbCr值，也就是4个Luminance，2个Chrominance
     /// 又由解析可知，Luminance的哈夫曼表是DC0+AC0,Chrominance的哈夫曼表是DC1+AC1
@@ -442,6 +449,31 @@ class _JPEGDecoderInternal {
         .reduce((value, element) => value + element);
 
     readMCUs();
+
+    // int mcuLineNumber = imageInfo.lineMCU;
+    // int mcuColumnNumber = imageInfo.columnMCU;
+
+    // int yLastDC = 0;
+    // for (int i = 0; i < mcuLineNumber; i++) {
+    //   for (int repeat = 0; repeat < 2; repeat++) {
+    //     for (int j = 0; j < mcuColumnNumber; j++) {
+    //       List<Block> blocks = imageInfo.mcus[i * mcuColumnNumber + j].Y;
+    //       if (repeat == 0) {
+    //         blocks[0].block[0][0] += yLastDC;
+    //         yLastDC = blocks[0].block[0][0];
+
+    //         blocks[1].block[0][0] += yLastDC;
+    //         yLastDC = blocks[1].block[0][0];
+    //       }else{
+    //         blocks[2].block[0][0] += yLastDC;
+    //         yLastDC = blocks[2].block[0][0];
+
+    //         blocks[3].block[0][0] += yLastDC;
+    //         yLastDC = blocks[3].block[0][0];
+    //       }
+    //     }
+    //   }
+    // }
 
     MCU mcu = imageInfo.mcus[0];
     debugMessage.writeln('Y：');
@@ -501,11 +533,12 @@ class _JPEGDecoderInternal {
     /// 反ZigZag => 反量化 => 反离散余弦转换
     imageInfo.mcus = imageInfo.mcus
         .map((e) => e
-            .zigZag()
             .inverseQT(
                 imageInfo.yQuantizationTable!.block,
                 imageInfo.cbQuantizationTable!.block,
                 imageInfo.crQuantizationTable!.block)
+            .zigZag()
+            // .negative()
             .inverseDCT())
         .toList();
 
@@ -595,7 +628,7 @@ class _JPEGDecoderInternal {
       var anchorElement = AnchorElement(
         href: Url.createObjectUrlFromBlob(blob).toString(),
       )
-        ..setAttribute("download", "data.ppm")
+        ..setAttribute("download", "After__data.ppm")
         ..click();
     }
   }
@@ -614,7 +647,7 @@ class _JPEGDecoderInternal {
     /// 获取值的表：
     /// https://www.w3.org/Graphics/JPEG/itu-t81.pdf 139页的
     /// Table H.2 – Difference categories for lossless Huffman coding
-    int getValueByCategory(String inputValueCode) {
+    int getValueByCode(String inputValueCode) {
       int signal = 1;
       String valueCode = '';
       if (inputValueCode.startsWith('0')) {
@@ -631,42 +664,40 @@ class _JPEGDecoderInternal {
     }
 
     int getDCValue(HaffmanTable table, int dcIndex) {
-      int index = 0;
+      int dcLength = 1;
       while (true) {
-        String codeWord =
-            dataString.substring(dataIndex, dataIndex + index + 1);
+        String codeWord = dataString.substring(dataIndex, dataIndex + dcLength);
         if (table.codeWord.contains(codeWord)) {
-          dataIndex += index + 1;
+          dataIndex += dcLength;
           // 计算DC值
           int category = table.category[table.codeWord.indexOf(codeWord)];
 
           int dcValue = category == 0
               ? 0
-              : getValueByCategory(
+              : getValueByCode(
                       dataString.substring(dataIndex, dataIndex + category)) +
                   lastDC[dcIndex];
           lastDC[dcIndex] = dcValue;
           dataIndex += category;
           return dcValue;
         } else {
-          index++;
+          dcLength++;
         }
       }
     }
 
     List<int> getACValue(HaffmanTable table) {
-      int index = 0;
+      int acLength = 1;
       List<int> result = [];
       while (true) {
-        String codeWord =
-            dataString.substring(dataIndex, dataIndex + index + 1);
+        String codeWord = dataString.substring(dataIndex, dataIndex + acLength);
 
         if (table.codeWord.contains(codeWord)) {
-          dataIndex += index + 1;
+          dataIndex += acLength;
           int category = table.category[table.codeWord.indexOf(codeWord)];
 
           /// run表示前面有几个值是0
-          int run = (category & 0xf0) >> 4;
+          int run = category >> 4;
 
           /// 这表示后面取几个bit表示值
           int size = category & 0x0f;
@@ -678,27 +709,32 @@ class _JPEGDecoderInternal {
 
             int value = size == 0
                 ? 0
-                : getValueByCategory(
+                : getValueByCode(
                     dataString.substring(dataIndex, dataIndex + size));
 
             result.add(value);
           }
           dataIndex += size;
-          index = 0;
+          acLength = 1;
           if (result.length == 63) {
             break;
           }
         } else {
-          index++;
+          acLength++;
         }
       }
 
       return result;
     }
 
-    int length = 0;
+    /// 压缩数据的已读下标
+    int dataReadIndex = 0;
 
+    int readCount = 0;
     while (dataIndex < dataString.length) {
+      if (++readCount == 2000) {
+        lastDC = [0, 0, 0];
+      }
       List<Block> luminance = List.generate(4, (index) {
         Block result = Block();
 
@@ -756,7 +792,7 @@ class _JPEGDecoderInternal {
       imageInfo.mcus
           .add(MCU(Y: luminance, Cb: chrominanceCb, Cr: chrominanceCr));
 
-      if ((++length) == imageInfo.mcuNumber) {
+      if ((++dataReadIndex) == imageInfo.mcuNumber) {
         //解析结束，剩下的都是多余填充的0，不作数
         print('$dataIndex === ${dataString.length}');
         break;

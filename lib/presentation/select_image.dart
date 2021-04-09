@@ -10,6 +10,7 @@ import 'package:wash_image/infrastructure/file_provider.dart';
 import 'package:wash_image/infrastructure/image_decode/decode_result.dart';
 import 'package:wash_image/infrastructure/image_decode/image_decoder.dart';
 import 'package:wash_image/infrastructure/image_encode/ppm/ppm_encoder.dart';
+import 'package:wash_image/infrastructure/model/model.dart';
 import 'package:wash_image/presentation/image_info.dart';
 import 'package:provider/provider.dart';
 
@@ -31,6 +32,36 @@ class _SelectImagePageState extends State<SelectImagePage> {
 
                 if (result != null) {
                   final bytes = result.files.first.bytes!;
+
+                  [
+                    [132, 139, 123],
+                    [145, 152, 136],
+                    [139, 146, 128],
+                    [116, 123, 105],
+                    [115, 120, 98],
+                    [135, 140, 118],
+                    [159, 161, 137],
+                    [170, 172, 148]
+                  ].map((e) {
+                    final rgb = PixelRGB(e[0], e[1], e[2]);
+                    final yuv = rgb.convert2YUV();
+                    print('1:$rgb, $yuv');
+                  }).toList();
+                  print('\n');
+                  [
+                    [135, 142, 126],
+                    [134, 141, 125],
+                    [129, 136, 120],
+                    [132, 139, 121],
+                    [135, 140, 120],
+                    [116, 121, 99],
+                    [100, 102, 80],
+                    [101, 103, 79],
+                  ].map((e) {
+                    final rgb = PixelRGB(e[0], e[1], e[2]);
+                    final yuv = rgb.convert2YUV();
+                    print('2:$rgb, $yuv');
+                  }).toList();
 
                   // StringBuffer str3 = StringBuffer();
 

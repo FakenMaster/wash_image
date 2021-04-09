@@ -78,20 +78,27 @@ class Block {
     return this * quantizationTable;
   }
 
+  /// 隔行正负纠正
+  Block negative() {
+    return Block(mapWithIndex((i, list) {
+      int signal = i.isEven ? -1 : 1;
+      return list.map((e) => e * signal).toList();
+    }).toList());
+  }
+
   /// 反离散余弦转换
   Block inverseDCT() {
     double c(int value) => value == 0 ? 1 / sqrt2 : 1;
 
     int d(int x, int y, Block origin) {
-      int N = 8;
       double value = 0;
-      for (int u = 0; u < N; u++) {
-        for (int v = 0; v < N; v++) {
-          value += c(u) *
+      for (int u = 0; u < 8; u++) {
+        for (int v = 0; v < 8; v++) {
+          value += (c(u) *
               c(v) *
               origin.block[u][v] *
               cos((2 * x + 1) * u * pi / 16) *
-              cos((2 * y + 1) * v * pi / 16);
+              cos((2 * y + 1) * v * pi / 16));
         }
       }
       return (value / 4).round();
