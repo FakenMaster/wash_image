@@ -423,6 +423,7 @@ class _JPEGDecoderInternal {
       return;
     }
 
+    print('大小:${scanDatas[0].length}');
     dataStrings = scanDatas
         .map((datas) => datas
             .map((item) => item.binaryString)
@@ -432,7 +433,7 @@ class _JPEGDecoderInternal {
     readMCUs();
     print('得到的MCU总共是:${imageInfo.mcus.length}, 理应是:${imageInfo.mcuNumber}');
 
-    printData(String title, [int index = 1999]) {
+    printData(String title, [int index = 2603]) {
       MCU mcu = imageInfo.mcus[index];
       int yIndex = 0;
       debugMessage.writeln('\n$title $index:');
@@ -471,12 +472,13 @@ class _JPEGDecoderInternal {
 
     /// 反量化 => 反ZigZag =>  反离散余弦转换
     imageInfo.mcus = imageInfo.mcus
-        .map((e) => e.inverseQT(
-            imageInfo.yQuantizationTable!.block,
-            imageInfo.cbQuantizationTable!.block,
-            imageInfo.crQuantizationTable!.block)
-        .zigZag()
-        .inverseDCT())
+        .map((e) => e
+            .inverseQT(
+                imageInfo.yQuantizationTable!.block,
+                imageInfo.cbQuantizationTable!.block,
+                imageInfo.crQuantizationTable!.block)
+            .zigZag()
+            .inverseDCT())
         .toList();
 
     // printData('反量化的数据');
