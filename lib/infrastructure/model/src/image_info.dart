@@ -95,7 +95,7 @@ class ImageInfo {
     int mcuColumnPixels = maxSamplingH * 8;
 
     print('MCU 行*列:$lineMCU * $columnMCU');
-    
+
     List<List<int>> yPixels = List.generate(lineMCU * mcuLinePixels,
         (index) => List.generate(columnMCU * mcuColumnPixels, (index) => 0));
     List<List<int>> uPixels = List.generate(lineMCU * mcuLinePixels,
@@ -103,67 +103,46 @@ class ImageInfo {
     List<List<int>> vPixels = List.generate(lineMCU * mcuLinePixels,
         (index) => List.generate(columnMCU * mcuColumnPixels, (index) => 0));
 
-    for (int i = 0; i < mcus.length; i++) {
-      /// 因为每个mcu有四个Y,1个Cb,一个Cr
-      MCU mcu = mcus[i];
-      int pixelLine = (i ~/ columnMCU) * 16;
-      int pixelColumn = (i % columnMCU) * 16;
+    luminace(List<Block> blockList, int pixelLine, int pixelColumn,
+        List<List<int>> result) {
+      blockList
+          .mapWithIndex((number, block) => block
+              .mapWithIndex(
+                  (indexLine, list) => list.mapWithIndex((indexColumn, value) {
+                        int nowLine = pixelLine + 8 * (number ~/ 2) + indexLine;
+                        int nowColumn =
+                            pixelColumn + 8 * (number % 2) + indexColumn;
+                        yPixels[nowLine][nowColumn] = value;
+                      }).toList())
+              .toList())
+          .toList();
+    }
 
-      // debugMessage.writeln('$mcuColumn * $mcuLine [$i]坐标:$line * $column');
+    chrominance(
+        Block block, int pixelLine, int pixelColumn, List<List<int>> result) {
+      block
+          .mapWithIndex(
+              (indexLine, list) => list.mapWithIndex((indexColumn, value) {
+                    int nowLine = pixelLine + indexLine * 2;
+                    int nowColumn = pixelColumn + indexColumn * 2;
+                    result[nowLine][nowColumn] = result[nowLine + 1]
+                        [nowColumn] = result[nowLine]
+                            [nowColumn + 1] =
+                        result[nowLine + 1][nowColumn + 1] = value;
+                  }).toList())
+          .toList();
+    }
 
-      for (int j = 0; j < mcu.YLength; j++) {
-        for (int indexLine = 0;
-            indexLine < mcu.Y[j].block.length;
-            indexLine++) {
-          List<int> pixels = mcu.Y[j].block[indexLine];
-          for (int indexColumn = 0;
-              indexColumn < pixels.length;
-              indexColumn++) {
-            int value = pixels[indexColumn];
+    for (int i = 0; i < lineMCU; i++) {
+      for (int j = 0; j < columnMCU; j++) {
+        MCU mcu = mcus[i * columnMCU + j];
+        int pixelLine = i * 16;
+        int pixelColumn = j * 16;
 
-            int nowLine = pixelLine + 8 * (j ~/ 2) + indexLine;
-            int nowColumn = pixelColumn + 8 * (j % 2) + indexColumn;
-            yPixels[nowLine][nowColumn] = value;
-          }
-        }
-      }
+        luminace(mcu.Y, pixelLine, pixelColumn, yPixels);
 
-      for (int j = 0; j < mcu.CbLength; j++) {
-        for (int indexLine = 0;
-            indexLine < mcu.Cb[j].block.length;
-            indexLine++) {
-          List<int> pixels = mcu.Cb[j].block[indexLine];
-          for (int indexColumn = 0;
-              indexColumn < pixels.length;
-              indexColumn++) {
-            int value = pixels[indexColumn];
-
-            int nowLine = pixelLine + indexLine * 2;
-            int nowColumn = pixelColumn + indexColumn * 2;
-            uPixels[nowLine][nowColumn] = uPixels[nowLine + 1][nowColumn] =
-                uPixels[nowLine][nowColumn + 1] =
-                    uPixels[nowLine + 1][nowColumn + 1] = value;
-          }
-        }
-      }
-
-      for (int j = 0; j < mcu.CrLength; j++) {
-        for (int indexLine = 0;
-            indexLine < mcu.Cr[j].block.length;
-            indexLine++) {
-          List<int> pixels = mcu.Cr[j].block[indexLine];
-          for (int indexColumn = 0;
-              indexColumn < pixels.length;
-              indexColumn++) {
-            int value = pixels[indexColumn];
-
-            int nowLine = pixelLine + indexLine * 2;
-            int nowColumn = pixelColumn + indexColumn * 2;
-            vPixels[nowLine][nowColumn] = vPixels[nowLine + 1][nowColumn] =
-                vPixels[nowLine][nowColumn + 1] =
-                    vPixels[nowLine + 1][nowColumn + 1] = value;
-          }
-        }
+        chrominance(mcu.Cb[0], pixelLine, pixelColumn, uPixels);
+        chrominance(mcu.Cr[0], pixelLine, pixelColumn, vPixels);
       }
     }
 
