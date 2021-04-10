@@ -1,6 +1,8 @@
+import 'dart:convert';
 import 'dart:html';
 
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -30,11 +32,11 @@ class _SelectImagePageState extends State<SelectImagePage> {
 
                   // StringBuffer str3 = StringBuffer();
 
+                  // int pre = 17;
                   // str3.write(ascii
-                  //     .decode(bytes.sublist(0, 15), allowInvalid: true)
+                  //     .decode(bytes.sublist(0, pre), allowInvalid: true)
                   //     .replaceFirst('6', '3'));
                   // print(str3);
-                  // int pre = 15;
                   // for (int i = 0; i < bytes.length - pre; i++) {
                   //   str3..write(bytes[i + pre])..write(' ');
                   //   if (i % 3 == 2) {
@@ -48,7 +50,7 @@ class _SelectImagePageState extends State<SelectImagePage> {
                   //   var anchorElement = AnchorElement(
                   //     href: Url.createObjectUrlFromBlob(blob).toString(),
                   //   )
-                  //     ..setAttribute("download", "copy.ppm")
+                  //     ..setAttribute("download", "painting_progress.ppm")
                   //     ..click();
                   // }
 

@@ -31,7 +31,6 @@ class JPEGDecoder {
 ////7.YUV还原成RGB
 class _JPEGDecoderInternal {
   final ByteData bytes;
-  int soi = JPEG_SOF0;
   int offset = 0;
   DecodeResult? result;
   StringBuffer debugMessage;
@@ -95,37 +94,27 @@ class _JPEGDecoderInternal {
   bool checkSegment() {
     int segment = readWord();
 
-    switch (segment) {
-      case JPEG_SOS:
-        return getSOS();
-      case JPEG_EOI:
-        getEOI();
-        return true;
-      case JPEG_APP0:
-        if (!getAPP0()) {
-          return false;
-        }
-        break;
-      case JPEG_DQT:
-        if (!getDQT()) {
-          return false;
-        }
-        break;
-      case JPEG_SOF0:
-        getSOF();
-        break;
-      case JPEG_SOF2:
-        soi = JPEG_SOF2;
-        getSOF();
-        break;
-      case JPEG_DHT:
-        getDHT();
-        break;
-      default:
-
-        /// 其他marker
-        print('segment:${segment.toRadix()}');
+    if (segment == JPEG_SOS) {
+      return getSOS();
+    } else if (segment == JPEG_EOI) {
+      getEOI();
+      return true;
+    } else if (segment == JPEG_APP0) {
+      if (!getAPP0()) {
         return false;
+      }
+    } else if (segment == JPEG_DQT) {
+      if (!getDQT()) {
+        return false;
+      }
+    } else if (segment == JPEG_DHT) {
+      getDHT();
+    } else if (segment >= 0xFFC0 && segment <= 0xFFCF) {
+      getSOF(segment);
+    } else {
+      /// 其他marker
+      print('segment:${segment.toRadix()}');
+      return false;
     }
 
     return checkSegment();
@@ -288,15 +277,10 @@ class _JPEGDecoderInternal {
   }
 
   /// start of frame(baseline DCT)
-  bool getSOF() {
+  bool getSOF(int soi) {
     int length = readWord() - 2;
-    final sof = {
-      JPEG_SOF0.toRadix(): 'SOF0',
-      JPEG_SOF2.toRadix(): 'SOF2',
-    };
-    String sofStr = soi.toRadix();
 
-    print('${sof[sofStr]}:$sofStr , 长度:$length');
+    print('SOF${soi - 0xFFC0}:${soi.toRadix()} , 长度:$length');
     if (length != 15) {
       return false;
     }
@@ -465,8 +449,63 @@ class _JPEGDecoderInternal {
       }
     }
 
-    // printData('第一次的数据', 4);
-    printData('第一次的数据');
+    printYUV(List<List<PixelYUV>> yuvs) {
+      List<List<List<int>>> data = List.generate(
+          3,
+          (index) =>
+              List.generate(8, (index) => List.generate(8, (index) => 0)));
+
+      for (int i = 0; i < 8; i++) {
+        for (int j = 0; j < 8; j++) {
+          PixelYUV pixelYUV = yuvs[i][j];
+          data[0][i][j] = pixelYUV.Y;
+          data[1][i][j] = pixelYUV.Cb;
+          data[2][i][j] = pixelYUV.Cr;
+        }
+      }
+
+      final titles = ['Y', 'U', 'V'];
+      for (int i = 0; i < 3; i++) {
+        debugMessage.writeln('\n${titles[i]}:');
+        for (int u = 0; u < 8; u++) {
+          debugMessage.write('[');
+          for (int v = 0; v < 8; v++) {
+            debugMessage.write('${data[i][u][v]}, ');
+          }
+          debugMessage.writeln(']');
+        }
+      }
+    }
+
+    printRGB(List<List<PixelRGB>> rgbs) {
+      List<List<List<int>>> data = List.generate(
+          3,
+          (index) =>
+              List.generate(8, (index) => List.generate(8, (index) => 0)));
+
+      for (int i = 0; i < 8; i++) {
+        for (int j = 0; j < 8; j++) {
+          PixelRGB pixelRGB = rgbs[i][j];
+          data[0][i][j] = pixelRGB.R;
+          data[1][i][j] = pixelRGB.G;
+          data[2][i][j] = pixelRGB.B;
+        }
+      }
+
+      final titles = ['R', 'G', 'B'];
+      for (int i = 0; i < 3; i++) {
+        debugMessage.writeln('\n${titles[i]}:');
+        for (int u = 0; u < 8; u++) {
+          debugMessage.write('[');
+          for (int v = 0; v < 8; v++) {
+            debugMessage.write('${data[i][u][v]}, ');
+          }
+          debugMessage.writeln(']');
+        }
+      }
+    }
+
+    // printData('第一次的数据');
 
     /// 反量化 => 反ZigZag =>  反离散余弦转换
     imageInfo.mcus = imageInfo.mcus
@@ -480,14 +519,15 @@ class _JPEGDecoderInternal {
         .toList();
 
     // printData('反量化的数据');
-    printData('反量化的数据');
 
     /// 还原Y/U/V值
     List<List<PixelYUV>> yuvs = imageInfo.yuv();
+    printYUV(yuvs);
 
     /// 还原RGB值
     List<List<PixelRGB>> rgbs =
         yuvs.map((list) => list.map((e) => e.convert2RGB()).toList()).toList();
+    printRGB(rgbs);
 
     StringBuffer buffer = StringBuffer();
     buffer
@@ -643,7 +683,10 @@ class _JPEGDecoderInternal {
             int column = (j + 1) % 8;
             result.block[line][column] = acValues[j];
           }
-          return result;
+
+          ///TODO:测试
+          // return result;
+          return Block();
         });
 
         List<Block> chrominanceCb = List.generate(1, (index) {
@@ -661,7 +704,10 @@ class _JPEGDecoderInternal {
             int column = (j + 1) % 8;
             result.block[line][column] = acValues[j];
           }
+
+          ///TODO:测试
           return result;
+          return Block();
         });
 
         List<Block> chrominanceCr = List.generate(1, (index) {
@@ -679,12 +725,16 @@ class _JPEGDecoderInternal {
             int column = (j + 1) % 8;
             result.block[line][column] = acValues[j];
           }
+
+          ///TODO:测试
           return result;
+          return Block();
         });
 
         imageInfo.mcus
             .add(MCU(Y: luminance, Cb: chrominanceCb, Cr: chrominanceCr));
       } catch (e) {
+        /// 压缩数据最后如果不足一个字节，要补1
         print('错误:$e\n');
         break;
       }
