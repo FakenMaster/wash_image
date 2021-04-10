@@ -423,7 +423,6 @@ class _JPEGDecoderInternal {
       return;
     }
 
-    print('大小:${scanDatas[0].length}');
     dataStrings = scanDatas
         .map((datas) => datas
             .map((item) => item.binaryString)
@@ -472,13 +471,12 @@ class _JPEGDecoderInternal {
 
     /// 反量化 => 反ZigZag =>  反离散余弦转换
     imageInfo.mcus = imageInfo.mcus
-        .map((e) => e
-            .inverseQT(
-                imageInfo.yQuantizationTable!.block,
-                imageInfo.cbQuantizationTable!.block,
-                imageInfo.crQuantizationTable!.block)
-            .zigZag()
-            .inverseDCT())
+        .map((e) => e.inverseQT(
+            imageInfo.yQuantizationTable!.block,
+            imageInfo.cbQuantizationTable!.block,
+            imageInfo.crQuantizationTable!.block)
+        .zigZag()
+        .inverseDCT())
         .toList();
 
     // printData('反量化的数据');
