@@ -31,6 +31,7 @@ class JPEGDecoder {
 ////7.YUV还原成RGB
 class _JPEGDecoderInternal {
   final ByteData bytes;
+  int soi = JPEG_SOF0;
   int offset = 0;
   DecodeResult? result;
   StringBuffer debugMessage;
@@ -86,7 +87,7 @@ class _JPEGDecoderInternal {
   /// check start of image
   bool checkSOI() {
     int soi = readWord();
-    print('结果soi: ${soi.toRadix()}');
+    print('SOI: ${soi.toRadix()}\n');
     return soi == JPEG_SOI;
   }
 
@@ -111,9 +112,11 @@ class _JPEGDecoderInternal {
         }
         break;
       case JPEG_SOF0:
-        if (!getSOF0()) {
-          return false;
-        }
+        getSOF();
+        break;
+      case JPEG_SOF2:
+        soi = JPEG_SOF2;
+        getSOF();
         break;
       case JPEG_DHT:
         getDHT();
@@ -130,7 +133,7 @@ class _JPEGDecoderInternal {
 
   bool getAPP0() {
     int remain = readWord() - 2;
-    print('app0剩下字节数:$remain');
+    print('APP0剩下字节数:$remain');
 
     int identifier = readDWord();
     int suffix = readByte();
@@ -186,7 +189,7 @@ class _JPEGDecoderInternal {
     if (remain != 0) {
       return false;
     }
-    print('JFIF解析成功');
+    print('JFIF解析成功\n');
     return true;
   }
 
@@ -285,9 +288,15 @@ class _JPEGDecoderInternal {
   }
 
   /// start of frame(baseline DCT)
-  bool getSOF0() {
+  bool getSOF() {
     int length = readWord() - 2;
-    print('SOF:${JPEG_SOF0.toRadix()}, 长度:$length');
+    final sof = {
+      JPEG_SOF0.toRadix(): 'SOF0',
+      JPEG_SOF2.toRadix(): 'SOF2',
+    };
+    String sofStr = soi.toRadix();
+
+    print('${sof[sofStr]}:$sofStr , 长度:$length');
     if (length != 15) {
       return false;
     }
@@ -298,8 +307,6 @@ class _JPEGDecoderInternal {
     int components = readByte(); // JFIF指定颜色空间为YCbCr，所以颜色分量数量固定为3
 
     print('图片精度:$precision, 宽度:$width, 高度:$height, 颜色分量:$components');
-
-    Map<int, ComponentInfo> componentInfos = {};
 
     int maxSamplingH = 1;
     int maxSamplingV = 1;
@@ -317,14 +324,15 @@ class _JPEGDecoderInternal {
       maxSamplingH = max(maxSamplingH, horizontalSampling);
       maxSamplingV = max(maxSamplingV, verticalSampling);
 
-      imageInfo.componentInfos.add(ComponentInfo(
+      ComponentInfo info;
+      imageInfo.componentInfos.add(info = ComponentInfo(
           componentId: colorId,
           horizontalSampling: horizontalSampling,
           verticalSampling: verticalSampling,
           qtId: qtId));
 
       /// 对应DQT中的量化表id
-      print('${componentInfos[colorId]}');
+      print('$info');
     }
 
     imageInfo
@@ -333,7 +341,7 @@ class _JPEGDecoderInternal {
       ..height = height
       ..maxSamplingH = maxSamplingH
       ..maxSamplingV = maxSamplingV;
-
+    print("");
     return true;
   }
 
@@ -351,10 +359,11 @@ class _JPEGDecoderInternal {
       int dc = huffmanTable >> 4;
       int ac = huffmanTable & 0x0f;
       print(
-          '#$i huffman: componentId:$componentId=>${(componentMap[componentId] ?? '').padRight(2)}, AC$ac ++ DC$dc');
+          '#$i componentId:$componentId=>${(componentMap[componentId] ?? '').padRight(2)}, AC$ac ++ DC$dc');
 
       imageInfo.setComponentDCAC(componentId, dc, ac);
     }
+    print("");
 
     /// 三个无用字符
     skip(3);
@@ -401,6 +410,12 @@ class _JPEGDecoderInternal {
       return;
     }
 
+    int dataBytes = 0;
+    scanDatas.forEach((element) {
+      dataBytes += element.length;
+    });
+    print('字节数:$dataBytes');
+
     dataStrings = scanDatas
         .map((datas) => datas
             .map((item) => item.binaryString)
@@ -408,9 +423,15 @@ class _JPEGDecoderInternal {
         .toList();
 
     readMCUs();
-    print('得到的MCU总共是:${imageInfo.mcus.length}, 理应是:${imageInfo.mcuNumber}');
-
+    print('得到的MCU总共是:${imageInfo.mcus.length}, 理应是:${imageInfo.mcuNumber}\n');
+    if (imageInfo.mcus.length == 0) {
+      print('没有可解析的数据，是解析出错了吧\n');
+      return;
+    }
     printData(String title, [int index = 1999]) {
+      if (imageInfo.mcus.length < index) {
+        return;
+      }
       MCU mcu = imageInfo.mcus[index];
       int yIndex = 0;
       debugMessage.writeln('\n$title $index:');
@@ -496,12 +517,12 @@ class _JPEGDecoderInternal {
 
   /// check end of image
   bool getEOI() {
-    print('文件解析结束，剩下的内容作为无关信息');
+    print('文件到头，解析结束，剩下的内容作为无关信息\n');
     return true;
   }
 
   readMCUs() {
-    print('几个:${dataStrings.length}');
+    print('${dataStrings.length}个重置DC值的MCU段:');
     dataStrings.mapWithIndex((index, element) {
       print('第$index个:');
       readMCU(element);
@@ -664,7 +685,7 @@ class _JPEGDecoderInternal {
         imageInfo.mcus
             .add(MCU(Y: luminance, Cb: chrominanceCb, Cr: chrominanceCr));
       } catch (e) {
-        print('错误:$e');
+        print('错误:$e\n');
         break;
       }
     }
