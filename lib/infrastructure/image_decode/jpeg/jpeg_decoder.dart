@@ -433,7 +433,7 @@ class _JPEGDecoderInternal {
     readMCUs();
     print('得到的MCU总共是:${imageInfo.mcus.length}, 理应是:${imageInfo.mcuNumber}');
 
-    printData(String title, [int index = 2603]) {
+    printData(String title, [int index = 1999]) {
       MCU mcu = imageInfo.mcus[index];
       int yIndex = 0;
       debugMessage.writeln('\n$title $index:');
@@ -620,8 +620,20 @@ class _JPEGDecoderInternal {
       return dataString.substring(dataIndex, dataIndex + dcLength);
     }
 
+    bool visit98 = false;
+    bool visit99 = false;
     int getDCValue(HaffmanTable table, int dcIndex) {
       int dcLength = 1;
+      if (imageInfo.mcus.length == 1998 && !visit98) {
+        visit98 = true;
+        print(
+            '1998开始读取位置:$dataIndex,${dataString.substring(dataIndex, dataIndex + 36)}');
+      }
+      if (imageInfo.mcus.length == 1999 && !visit99) {
+        visit99 = true;
+        print(
+            '1999开始读取位置:$dataIndex,${dataString.substring(dataIndex, dataIndex + 36)}');
+      }
       //有可能这一段的dataString已经读取结束，剩下的几位bit是用于凑足字节而已
       while (true) {
         String codeWord = getStringData(dcLength);
