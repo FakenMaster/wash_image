@@ -216,14 +216,13 @@ class _JPEGDecoderInternal {
         block.block[i ~/ 8][i % 8] = value;
       }
 
-      imageInfo.quantizationTables.add(
+      QuantizationTable table;
+      imageInfo.quantizationTables.add(table =
           QuantizationTable(precision: precision, qtId: qtId, block: block));
+      print('$table');
 
       length -= (1 + size * 64);
     }
-    imageInfo.quantizationTables.forEach((element) {
-      print('$element');
-    });
 
     return true;
   }

@@ -14,7 +14,7 @@ class QuantizationTable {
   String toString() {
     StringBuffer buffer = StringBuffer();
     buffer
-      ..writeln('$precision:$precision, id:$qtId')
+      ..writeln('id:$qtId')
       ..writeln(block.toString());
 
     return buffer.toString();
