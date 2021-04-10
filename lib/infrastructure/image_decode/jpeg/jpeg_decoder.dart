@@ -79,18 +79,20 @@ class _JPEGDecoderInternal {
     return dWord;
   }
 
+  void skip(int size) {
+    offset += size;
+  }
+
   /// check start of image
   bool checkSOI() {
-    int soi = bytes.getUint16(offset);
+    int soi = readWord();
     print('结果soi: ${soi.toRadix()}');
-    offset += 2;
     return soi == JPEG_SOI;
   }
 
   /// check segment
   bool checkSegment() {
-    int segment = bytes.getUint16(offset);
-    offset += 2;
+    int segment = readWord();
 
     switch (segment) {
       case JPEG_SOS:
@@ -127,21 +129,11 @@ class _JPEGDecoderInternal {
   }
 
   bool getAPP0() {
-    // int app0 = bytes.getUint16(offset);
-    // debugMessage..writeln('结果app0: ${app0.toRadix()}')..writeln();
-    // offset += 2;
-
-    // if (app0 != JPEG_APP0) {
-    //   return false;
-    // }
-
-    int remain = bytes.getUint16(offset) - 2;
+    int remain = readWord() - 2;
     print('app0剩下字节数:$remain');
-    offset += 2;
 
-    int identifier = bytes.getUint32(offset);
-    int suffix = bytes.getUint8(offset + 4);
-    offset += 5;
+    int identifier = readDWord();
+    int suffix = readByte();
     remain -= 5;
     print('identifier: ${identifier.toRadix()}');
 
@@ -159,9 +151,8 @@ class _JPEGDecoderInternal {
   /// check jfif app0 marker segment
   bool checkJFIFAPP0(int remain) {
     /// jfif version
-    int version0 = bytes.getUint8(offset);
-    int version1 = bytes.getUint8(offset + 1);
-    offset += 2;
+    int version0 = readByte();
+    int version1 = readByte();
     remain -= 2;
     print('jfif版本:$version0.${version1.toRadix(padNum: 2, prefix: false)}');
 
@@ -173,21 +164,18 @@ class _JPEGDecoderInternal {
     };
 
     ///
-    int density = bytes.getUint8(offset);
-    offset += 1;
+    int density = readByte();
     remain -= 1;
     print(
         'density:${density.toRadix(padNum: 2, prefix: false)}:${densityMessage[density]}');
 
-    int xDensity = bytes.getUint16(offset);
-    int yDensity = bytes.getUint16(offset + 2);
-    offset += 4;
+    int xDensity = readWord();
+    int yDensity = readWord();
     remain -= 4;
     print('$xDensity * $yDensity');
 
-    int xThumbnail = bytes.getUint8(offset);
-    int yThumbnail = bytes.getUint8(offset + 1);
-    offset += 2;
+    int xThumbnail = readByte();
+    int yThumbnail = readByte();
     remain -= 2;
     print('thumbnail:$xThumbnail * $yThumbnail');
 
@@ -209,13 +197,11 @@ class _JPEGDecoderInternal {
 
   /// define quantization table(s)
   bool getDQT() {
-    int length = bytes.getUint16(offset) - 2;
-    offset += 2;
+    int length = readWord() - 2;
     print('量化表：DQT:${JPEG_DQT.toRadix()}, 长度:$length');
 
     while (length > 0) {
-      int sizeAndID = bytes.getUint8(offset);
-      offset += 1;
+      int sizeAndID = readByte();
 
       // precision of QT, 0 = 8 bit, otherwise 16 bit
       int precision = sizeAndID >> 4;
@@ -225,10 +211,8 @@ class _JPEGDecoderInternal {
 
       Block block = Block();
       for (int i = 0; i < 64; i++) {
-        int value =
-            precision == 0 ? bytes.getUint8(offset) : bytes.getUint16(offset);
+        int value = precision == 0 ? readByte() : readWord();
 
-        offset += size;
         block.block[i ~/ 8][i % 8] = value;
       }
 
@@ -241,44 +225,36 @@ class _JPEGDecoderInternal {
       print('$element');
     });
 
-    if (length != 0) {
-      return false;
-    }
     return true;
   }
 
   /// define haffman table(s)
   bool getDHT() {
-    int length = bytes.getUint16(offset) - 2;
-    offset += 2;
+    int length = readWord() - 2;
     print('DHT:${JPEG_DHT.toRadix()}, 长度:$length');
 
-    int information = bytes.getUint8(offset);
+    int information = readByte();
     int type = information >> 4;
 
     int number = information & 0x0f;
 
-    offset += 1;
-
     List<int> codeLength = [];
     for (int i = 0; i < 16; i++) {
-      int number = bytes.getUint8(offset + i);
+      int number = readByte();
 
       if (number != 0) {
         codeLength.addAll(List.generate(number, (_) => i + 1));
       }
     }
 
-    offset += 16;
     int categoryNumber = codeLength.length;
 
     List<int> categoryList = [];
     List<String> codeWordList = [];
     for (int i = 0; i < categoryNumber; i++) {
-      categoryList.add(bytes.getUint8(offset + i));
+      categoryList.add(readByte());
     }
 
-    offset += categoryNumber;
     length -= 1 + 16 + categoryNumber;
 
     String currentCodeWord = '';
@@ -311,21 +287,16 @@ class _JPEGDecoderInternal {
 
   /// start of frame(baseline DCT)
   bool getSOF0() {
-    int length = bytes.getUint16(offset) - 2;
-    offset += 2;
+    int length = readWord() - 2;
     print('SOF:${JPEG_SOF0.toRadix()}, 长度:$length');
     if (length != 15) {
       return false;
     }
-    int precision = bytes.getUint8(offset);
-    offset += 1;
-    int height = bytes.getUint16(offset);
-    offset += 2;
-    int width = bytes.getUint16(offset);
-    offset += 2;
+    int precision = readByte();
+    int height = readWord();
+    int width = readWord();
 
-    int components = bytes.getUint8(offset); // JFIF指定颜色空间为YCbCr，所以颜色分量数量固定为3
-    offset += 1;
+    int components = readByte(); // JFIF指定颜色空间为YCbCr，所以颜色分量数量固定为3
 
     print('图片精度:$precision, 宽度:$width, 高度:$height, 颜色分量:$components');
 
@@ -336,10 +307,10 @@ class _JPEGDecoderInternal {
 
     /// https://github.com/MROS/jpeg_tutorial/blob/master/doc/%E8%B7%9F%E6%88%91%E5%AF%ABjpeg%E8%A7%A3%E7%A2%BC%E5%99%A8%EF%BC%88%E5%9B%9B%EF%BC%89%E8%AE%80%E5%8F%96%E5%A3%93%E7%B8%AE%E5%9C%96%E5%83%8F%E6%95%B8%E6%93%9A.md#%E8%AE%80%E5%8F%96-sof0-%E5%8D%80%E6%AE%B5
     for (int i = 0; i < components; i++) {
-      int colorId = bytes.getUint8(offset);
+      int colorId = readByte();
 
-      int subSample = bytes.getUint8(offset + 1);
-      int qtId = bytes.getUint8(offset + 2);
+      int subSample = readByte();
+      int qtId = readByte();
 
       int horizontalSampling = subSample >> 4;
       int verticalSampling = subSample & 0x0f;
@@ -355,7 +326,6 @@ class _JPEGDecoderInternal {
 
       /// 对应DQT中的量化表id
       print('${componentInfos[colorId]}');
-      offset += 3;
     }
 
     imageInfo
@@ -365,38 +335,30 @@ class _JPEGDecoderInternal {
       ..maxSamplingH = maxSamplingH
       ..maxSamplingV = maxSamplingV;
 
-    print('\n');
-
     return true;
   }
 
   /// check start of scan
   bool getSOS() {
-    // int sos = bytes.getUint16(offset);
-    // offset += 2;
-    int length = bytes.getUint16(offset) - 2;
-    offset += 2;
+    int length = readWord() - 2;
 
-    int number = bytes.getUint8(offset);
+    int number = readByte();
     print('SOS:${JPEG_SOS.toRadix()}, 长度:$length, component个数:$number');
-    offset += 1;
-    length -= 1 + number * 2;
 
     Map<int, String> componentMap = {1: 'Y', 2: 'Cb', 3: 'Cr', 4: 'I', 5: 'Q'};
     for (int i = 0; i < number; i++) {
-      int componentId = bytes.getUint8(offset);
-      int huffmanTable = bytes.getUint8(offset + 1);
+      int componentId = readByte();
+      int huffmanTable = readByte();
       int dc = huffmanTable >> 4;
       int ac = huffmanTable & 0x0f;
-      offset += 2;
       print(
           '#$i huffman: componentId:$componentId=>${(componentMap[componentId] ?? '').padRight(2)}, AC$ac ++ DC$dc');
 
       imageInfo.setComponentDCAC(componentId, dc, ac);
     }
 
-    offset += 3;
-    length -= 3;
+    /// 三个无用字符
+    skip(3);
 
     /// 紧随其后，就是压缩图像的数据了
     readCompressedData();
@@ -407,12 +369,12 @@ class _JPEGDecoderInternal {
 
   /// 读取压缩数据
   void readCompressedData() {
-    int input = bytes.getUint8(offset++);
+    int input = readByte();
     List<List<int>> scanDatas = [];
     List<int> datas = [];
     while (true) {
       if (input == 0xFF) {
-        int marker = bytes.getUint8(offset++);
+        int marker = readByte();
 
         if (marker == 0x00) {
           //过滤掉，并把input作为数据插入
@@ -433,7 +395,7 @@ class _JPEGDecoderInternal {
         datas.add(input);
       }
 
-      input = bytes.getUint8(offset++);
+      input = readByte();
     }
 
     if (scanDatas.isEmpty) {
@@ -488,12 +450,13 @@ class _JPEGDecoderInternal {
 
     /// 反量化 => 反ZigZag =>  反离散余弦转换
     imageInfo.mcus = imageInfo.mcus
-        .map((e) => e.inverseQT(
-            imageInfo.yQuantizationTable!.block,
-            imageInfo.cbQuantizationTable!.block,
-            imageInfo.crQuantizationTable!.block)
-        .zigZag()
-        .inverseDCT())
+        .map((e) => e
+            .inverseQT(
+                imageInfo.yQuantizationTable!.block,
+                imageInfo.cbQuantizationTable!.block,
+                imageInfo.crQuantizationTable!.block)
+            .zigZag()
+            .inverseDCT())
         .toList();
 
     // printData('反量化的数据');
@@ -520,64 +483,6 @@ class _JPEGDecoderInternal {
           ..writeln("${rgbs[i][j].B}");
       }
     }
-
-    // debugMessage.writeln('第一個8*8 Y');
-    // for (int i = 0; i < 8; i++) {
-    //   debugMessage.write('[');
-    //   for (int j = 0; j < 8; j++) {
-    //     debugMessage.write('${yuvs[i][j].Y}, ');
-    //   }
-    //   debugMessage.writeln(']');
-    // }
-
-    // debugMessage.writeln('第一個8*8 Cb');
-
-    // for (int i = 0; i < 8; i++) {
-    //   debugMessage.write('[');
-    //   for (int j = 0; j < 8; j++) {
-    //     debugMessage.write('${yuvs[i][j].Cb}, ');
-    //   }
-    //   debugMessage.writeln(']');
-    // }
-
-    // debugMessage.writeln('第一個8*8 Cr');
-
-    // for (int i = 0; i < 8; i++) {
-    //   debugMessage.write('[');
-    //   for (int j = 0; j < 8; j++) {
-    //     debugMessage.write('${yuvs[i][j].Cr}, ');
-    //   }
-    //   debugMessage.writeln(']');
-    // }
-
-    // debugMessage.writeln('第一個8*8 R');
-    // for (int i = 0; i < 8; i++) {
-    //   debugMessage.write('[');
-    //   for (int j = 0; j < 8; j++) {
-    //     debugMessage.write('${rgbs[i][j].R}, ');
-    //   }
-    //   debugMessage.writeln(']');
-    // }
-
-    // debugMessage.writeln('第一個8*8 G');
-
-    // for (int i = 0; i < 8; i++) {
-    //   debugMessage.write('[');
-    //   for (int j = 0; j < 8; j++) {
-    //     debugMessage.write('${rgbs[i][j].G}, ');
-    //   }
-    //   debugMessage.writeln(']');
-    // }
-
-    // debugMessage.writeln('第一個8*8 B');
-
-    // for (int i = 0; i < 8; i++) {
-    //   debugMessage.write('[');
-    //   for (int j = 0; j < 8; j++) {
-    //     debugMessage.write('${rgbs[i][j].B}, ');
-    //   }
-    //   debugMessage.writeln(']');
-    // }
 
     if (kIsWeb) {
       var blob = Blob([buffer.toString()], 'text/plain', 'native');
@@ -637,7 +542,7 @@ class _JPEGDecoderInternal {
 
     int getDCValue(HaffmanTable table, int dcIndex) {
       int dcLength = 1;
-      
+
       //有可能这一段的dataString已经读取结束，剩下的几位bit是用于凑足字节而已
       while (true) {
         String codeWord = getStringData(dcLength);
@@ -662,7 +567,7 @@ class _JPEGDecoderInternal {
     List<int> getACValue(HaffmanTable table) {
       int acLength = 1;
       List<int> result = [];
-      
+
       while (true) {
         String codeWord = dataString.substring(dataIndex, dataIndex + acLength);
 
@@ -763,7 +668,6 @@ class _JPEGDecoderInternal {
         print('错误:$e');
         break;
       }
-     
     }
   }
 }
