@@ -618,20 +618,9 @@ class _JPEGDecoderInternal {
       return dataString.substring(dataIndex, dataIndex + dcLength);
     }
 
-    bool visit98 = false;
-    bool visit99 = false;
     int getDCValue(HaffmanTable table, int dcIndex) {
       int dcLength = 1;
-      if (imageInfo.mcus.length == 1998 && !visit98) {
-        visit98 = true;
-        print(
-            '1998开始读取位置:$dataIndex,${dataString.substring(dataIndex, dataIndex + 36)}');
-      }
-      if (imageInfo.mcus.length == 1999 && !visit99) {
-        visit99 = true;
-        print(
-            '1999开始读取位置:$dataIndex,${dataString.substring(dataIndex, dataIndex + 36)}');
-      }
+      
       //有可能这一段的dataString已经读取结束，剩下的几位bit是用于凑足字节而已
       while (true) {
         String codeWord = getStringData(dcLength);
@@ -653,16 +642,10 @@ class _JPEGDecoderInternal {
       }
     }
 
-    bool visit = false;
     List<int> getACValue(HaffmanTable table) {
       int acLength = 1;
       List<int> result = [];
-      if (imageInfo.mcus.length == 1999 && !visit) {
-        visit = true;
-        print('之前:527222-527226:   ${dataString.substring(527222, 527226)}');
-        print(
-            '开始读取位置:$dataIndex,${dataString.substring(dataIndex, dataIndex + 36)}');
-      }
+      
       while (true) {
         String codeWord = dataString.substring(dataIndex, dataIndex + acLength);
 
@@ -700,9 +683,6 @@ class _JPEGDecoderInternal {
 
       return result;
     }
-
-    /// 压缩数据的已读下标
-    int dataReadIndex = 0;
 
     while (dataIndex < dataString.length) {
       try {
@@ -766,11 +746,7 @@ class _JPEGDecoderInternal {
         print('错误:$e');
         break;
       }
-      // if ((++dataReadIndex) == imageInfo.mcuNumber) {
-      //   //此轮解析结束，剩下的都是多余填充的0，不作数
-      //   print('$dataIndex === ${dataString.length}');
-      //   break;
-      // }
+     
     }
   }
 }
