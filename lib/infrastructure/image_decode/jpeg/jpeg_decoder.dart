@@ -62,6 +62,23 @@ class _JPEGDecoderInternal {
     return result ?? fail();
   }
 
+  /// read 1 byte
+  int readByte() => bytes.getUint8(offset++);
+
+  /// read 2 byte
+  int readWord() {
+    int word = bytes.getUint16(offset);
+    offset += 2;
+    return word;
+  }
+
+  /// read 4 byte
+  int readDWord() {
+    int dWord = bytes.getUint32(offset);
+    offset += 4;
+    return dWord;
+  }
+
   /// check start of image
   bool checkSOI() {
     int soi = bytes.getUint16(offset);
