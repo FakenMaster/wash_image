@@ -22,6 +22,8 @@ class _SelectImagePageState extends State<SelectImagePage> {
     return Scaffold(
       body: Column(
         children: [
+          // 不支持avif?
+          // Image.asset('images/kimono.avif'),
           ElevatedButton(
               onPressed: () async {
                 FilePickerResult? result =

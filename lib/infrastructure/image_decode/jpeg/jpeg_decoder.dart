@@ -34,6 +34,8 @@ class _JPEGDecoderInternal {
   int offset = 0;
   DecodeResult? result;
   StringBuffer debugMessage;
+
+  List<List<int>> scanDatas = [];
   List<String> dataStrings = [];
 
   ImageInfo imageInfo;
@@ -91,8 +93,9 @@ class _JPEGDecoderInternal {
   }
 
   /// check segment
-  bool checkSegment() {
-    int segment = readWord();
+  bool checkSegment([int? inputSegment]) {
+    // 如果输入值不为空，则无需再读segment标记
+    int segment = inputSegment ?? readWord();
 
     if (segment == JPEG_SOS) {
       return getSOS();
@@ -110,7 +113,12 @@ class _JPEGDecoderInternal {
     } else if (segment == JPEG_DHT) {
       getDHT();
     } else if (segment >= 0xFFC0 && segment <= 0xFFCF) {
+      imageInfo.progressive = segment == 0xFFC2;
       getSOF(segment);
+    } else if (segment == JPEG_COM) {
+      // 注释
+      print('注释');
+      return false;
     } else {
       /// 其他marker
       print('segment:${segment.toRadix()}');
@@ -222,7 +230,7 @@ class _JPEGDecoderInternal {
   /// define haffman table(s)
   bool getDHT() {
     int length = readWord() - 2;
-    print('DHT:${JPEG_DHT.toRadix()}, 长度:$length');
+    print('\nDHT:${JPEG_DHT.toRadix()}, 长度:$length');
 
     int information = readByte();
     int type = information >> 4;
@@ -334,7 +342,8 @@ class _JPEGDecoderInternal {
     int length = readWord() - 2;
 
     int number = readByte();
-    print('SOS:${JPEG_SOS.toRadix()}, 长度:$length, component个数:$number');
+    print(
+        '#${scanDatas.length} SOS:${JPEG_SOS.toRadix()}, 长度:$length, component个数:$number');
 
     Map<int, String> componentMap = {1: 'Y', 2: 'Cb', 3: 'Cr', 4: 'I', 5: 'Q'};
     for (int i = 0; i < number; i++) {
@@ -343,14 +352,31 @@ class _JPEGDecoderInternal {
       int dc = huffmanTable >> 4;
       int ac = huffmanTable & 0x0f;
       print(
-          '#$i componentId:$componentId=>${(componentMap[componentId] ?? '').padRight(2)}, AC$ac ++ DC$dc');
+          'componentId:$componentId=>${(componentMap[componentId] ?? '').padRight(2)}, DC$dc ++ AC$ac');
 
       imageInfo.setComponentDCAC(componentId, dc, ac);
     }
     print("");
 
-    /// 三个无用字符
-    skip(3);
+    /// start of spectral or predictor selector
+    /// for sequential DCT,this shall be zero;
+    /// 0-63
+    int start = readByte();
+
+    /// end of spectral selection
+    /// 0-63,if start==0 then 0
+    int end = readByte();
+    if (start == 0) {
+      end = 0;
+    }
+
+    /// successive approximation: Ah Al
+    int sa = readByte();
+    int ah = (sa >> 4) & 0x0F;
+    int al = sa & 0x0F;
+
+    print(
+        'start spectral:$start, end spectral:$end, \nsuccesive approximation: high:$ah, low:$al');
 
     /// 紧随其后，就是压缩图像的数据了
     readCompressedData();
@@ -362,24 +388,54 @@ class _JPEGDecoderInternal {
   /// 读取压缩数据
   void readCompressedData() {
     int input = readByte();
-    List<List<int>> scanDatas = [];
     List<int> datas = [];
     while (true) {
       if (input == 0xFF) {
         int marker = readByte();
 
-        if (marker == 0x00) {
-          //过滤掉，并把input作为数据插入
-          datas.add(input);
-        } else if (marker == 0xD9) {
+        if (marker == 0xD9) {
           //文件结束
+          print('压缩数据长度：${datas.length}\n');
           scanDatas.add(datas);
           getEOI();
           break;
+        } else if (marker == 0xDD) {
+          print('DRI标记');
+          return;
+        } else if (marker == 0xFE) {
+          print('有注释');
+          return;
         } else if (marker >= 0xD0 && marker <= 0xD7) {
           //重置dc差值，还原成0
           scanDatas.add(datas);
           datas = [];
+        } else if (marker == 0xDA) {
+          /// progressive mode中，有多个SOS段
+          //重置dc差值，还原成0
+          if (datas.length > 0) {
+            scanDatas.add(datas);
+            print('压缩数据长度：${datas.length}\n');
+            datas = [];
+          }
+          getSOS();
+          return;
+        } else if (marker == 0xC4) {
+          print('压缩数据字节数：${datas.length}\n，位数:${datas.length * 8}');
+          scanDatas.add(datas);
+
+          datas = [];
+
+          /// 這邊就應該去解壓這一次scan的數據了，否則可能AC Huffman表的數據被改變了
+          if (scanDatas.length == 1) {
+            print('数据字节数:${scanDatas[0].length}');
+            readMCUProgressive(scanDatas[0]
+                .map((e) => e.binaryString)
+                .reduce((value, element) => value + element));
+          }
+          getDHT();
+        } else if (marker == 0x00) {
+          //过滤掉，并把input作为数据插入
+          datas.add(input);
         } else {
           datas.addAll([input, marker]);
         }
@@ -398,15 +454,16 @@ class _JPEGDecoderInternal {
     scanDatas.forEach((element) {
       dataBytes += element.length;
     });
-    print('字节数:$dataBytes');
+    print('总共字节数:$dataBytes');
 
-    dataStrings = scanDatas
-        .map((datas) => datas
-            .map((item) => item.binaryString)
-            .reduce((value, element) => value + element))
-        .toList();
+    // dataStrings = scanDatas
+    //     .map((datas) => datas
+    //         .map((item) => item.binaryString)
+    //         .reduce((value, element) => value + element))
+    //     .toList();
 
-    readMCUs();
+    // readMCUs();
+
     print('得到的MCU总共是:${imageInfo.mcus.length}, 理应是:${imageInfo.mcuNumber}\n');
     if (imageInfo.mcus.length == 0) {
       print('没有可解析的数据，是解析出错了吧\n');
@@ -505,8 +562,6 @@ class _JPEGDecoderInternal {
       }
     }
 
-    // printData('第一次的数据');
-
     /// 反量化 => 反ZigZag =>  反离散余弦转换
     imageInfo.mcus = imageInfo.mcus
         .map((e) => e
@@ -515,19 +570,18 @@ class _JPEGDecoderInternal {
                 imageInfo.cbQuantizationTable!.block,
                 imageInfo.crQuantizationTable!.block)
             .zigZag()
-            .inverseDCT())
+            .inverseDCT()
+            .shiftLeft([0, 0], 1))
         .toList();
-
-    // printData('反量化的数据');
 
     /// 还原Y/U/V值
     List<List<PixelYUV>> yuvs = imageInfo.yuv();
-    printYUV(yuvs);
+    // printYUV(yuvs);
 
     /// 还原RGB值
     List<List<PixelRGB>> rgbs =
         yuvs.map((list) => list.map((e) => e.convert2RGB()).toList()).toList();
-    printRGB(rgbs);
+    // printRGB(rgbs);
 
     StringBuffer buffer = StringBuffer();
     buffer
@@ -561,51 +615,33 @@ class _JPEGDecoderInternal {
     return true;
   }
 
+  String dataToString(List<int> data) {
+    return data
+        .map((e) => e.binaryString)
+        .reduce((value, element) => value + element);
+  }
+
   readMCUs() {
-    print('${dataStrings.length}个重置DC值的MCU段:');
+    if (imageInfo.progressive) {
+      readMCUProgressive(dataStrings[0]);
+      return;
+    }
     dataStrings.mapWithIndex((index, element) {
       print('第$index个:');
       readMCU(element);
     }).toList();
   }
 
-  readMCU(String dataString) {
-    /// Y、U、V各自有直流差分矫正变量，如果数据流中出现RSTn,那么三个颜色的矫正变量都要改变
-    List<int> lastDC = [0, 0, 0];
+  readMCUProgressive(String dataString) {
+    print('字符串长度:${dataString.length}');
     int dataIndex = 0;
-
-    /// 获取值的表：
-    /// https://www.w3.org/Graphics/JPEG/itu-t81.pdf 139页的
-    /// Table H.2 – Difference categories for lossless Huffman coding
-    int getValueByCode(String inputValueCode) {
-      int signal = 1;
-      String valueCode = '';
-      if (inputValueCode.startsWith('0')) {
-        signal = -1;
-        // 说明是负数，取反计算对应的正数值
-        for (int j = 0; j < inputValueCode.length; j++) {
-          valueCode += inputValueCode[j] == '0' ? '1' : '0';
-        }
-      } else {
-        valueCode = inputValueCode;
-      }
-
-      return signal * int.parse(valueCode, radix: 2);
-    }
-
-    String getStringData(int dcLength) {
-      if (dataIndex + dcLength > dataString.length) {
-        throw ArgumentError('数据不够了');
-      }
-      return dataString.substring(dataIndex, dataIndex + dcLength);
-    }
+    List<int> lastDC = [0, 0, 0];
 
     int getDCValue(HaffmanTable table, int dcIndex) {
       int dcLength = 1;
 
-      //有可能这一段的dataString已经读取结束，剩下的几位bit是用于凑足字节而已
       while (true) {
-        String codeWord = getStringData(dcLength);
+        String codeWord = getStringData(dataString, dataIndex, dcLength);
 
         if (table.codeWord.contains(codeWord)) {
           dataIndex += dcLength;
@@ -614,7 +650,121 @@ class _JPEGDecoderInternal {
 
           int dcValue = category == 0
               ? lastDC[dcIndex]
-              : getValueByCode(getStringData(category)) + lastDC[dcIndex];
+              : getValueByCode(getStringData(dataString, dataIndex, category)) +
+                  lastDC[dcIndex];
+          dataIndex += category;
+          lastDC[dcIndex] = dcValue;
+          return dcValue;
+        } else {
+          dcLength++;
+        }
+      }
+    }
+
+    while (dataIndex < dataString.length) {
+      try {
+        List<Block> luminance = List.generate(4, (index) {
+          Block result = Block();
+
+          /// DC值
+          int dcValue = getDCValue(imageInfo.yHaffmanTable(true)!, 0);
+
+          result.block[0][0] = dcValue;
+          return result;
+        });
+
+        List<Block> chrominanceCb = List.generate(1, (index) {
+          Block result = Block();
+
+          // DC值
+          int dcValue = getDCValue(imageInfo.cbHaffmanTable(true)!, 1);
+
+          result.block[0][0] = dcValue;
+          return result;
+        });
+
+        List<Block> chrominanceCr = List.generate(1, (index) {
+          Block result = Block();
+
+          /// DC值
+          int dcValue = getDCValue(imageInfo.crHaffmanTable(true)!, 2);
+
+          result.block[0][0] = dcValue;
+          return result;
+        });
+
+        imageInfo.mcus
+            .add(MCU(Y: luminance, Cb: chrominanceCb, Cr: chrominanceCr));
+      } catch (e) {
+        /// 压缩数据最后如果不足一个字节，要补1
+        print(
+            '错误:$e\n, 出错的地方:${dataString.substring(dataIndex, dataIndex + 10)}');
+        break;
+      }
+    }
+    print('最终数据大小:${imageInfo.mcus.length}');
+    int start = imageInfo.mcus.length;
+    for (int i = start; i < imageInfo.mcuNumber; i++) {
+      imageInfo.mcus.add(MCU(
+          Y: List.generate(4, (index) => Block()),
+          Cb: [Block()],
+          Cr: [Block()]));
+    }
+  }
+
+  int getValueByCodeProgressive(String inputValueCode, int bit) {
+    int signal = bit == 0 ? -1 : 1;
+
+    return signal * int.parse(inputValueCode, radix: 2);
+  }
+
+  /// 获取值的表：
+  /// https://www.w3.org/Graphics/JPEG/itu-t81.pdf 139页的
+  /// Table H.2 – Difference categories for lossless Huffman coding
+  int getValueByCode(String inputValueCode) {
+    int signal = 1;
+    String valueCode = '';
+    if (inputValueCode.startsWith('0')) {
+      signal = -1;
+      // 说明是负数，取反计算对应的正数值
+      for (int j = 0; j < inputValueCode.length; j++) {
+        valueCode += inputValueCode[j] == '0' ? '1' : '0';
+      }
+    } else {
+      valueCode = inputValueCode;
+    }
+
+    return signal * int.parse(valueCode, radix: 2);
+  }
+
+  String getStringData(String dataString, int dataIndex, int dcLength) {
+    if (dataIndex + dcLength > dataString.length) {
+      throw ArgumentError(
+          '数据不够了,当前dataIndex:$dataIndex, 总共${dataString.length}位');
+    }
+    return dataString.substring(dataIndex, dataIndex + dcLength);
+  }
+
+  readMCU(String dataString) {
+    /// Y、U、V各自有直流差分矫正变量，如果数据流中出现RSTn,那么三个颜色的矫正变量都要改变
+    List<int> lastDC = [0, 0, 0];
+    int dataIndex = 0;
+
+    int getDCValue(HaffmanTable table, int dcIndex) {
+      int dcLength = 1;
+
+      while (true) {
+        String codeWord = getStringData(dataString, dataIndex, dcLength);
+
+        if (table.codeWord.contains(codeWord)) {
+          dataIndex += dcLength;
+          // 计算DC值
+          int category = table.category[table.codeWord.indexOf(codeWord)];
+
+          int dcValue = category == 0
+              ? lastDC[dcIndex]
+              : getValueByCode(getStringData(dataString, dataIndex, category)) +
+                  lastDC[dcIndex];
           lastDC[dcIndex] = dcValue;
           dataIndex += category;
           return dcValue;
@@ -684,9 +834,7 @@ class _JPEGDecoderInternal {
             result.block[line][column] = acValues[j];
           }
 
-          ///TODO:测试
-          // return result;
-          return Block();
+          return result;
         });
 
         List<Block> chrominanceCb = List.generate(1, (index) {
@@ -705,9 +853,7 @@ class _JPEGDecoderInternal {
             result.block[line][column] = acValues[j];
           }
 
-          ///TODO:测试
           return result;
-          return Block();
         });
 
         List<Block> chrominanceCr = List.generate(1, (index) {
@@ -726,9 +872,7 @@ class _JPEGDecoderInternal {
             result.block[line][column] = acValues[j];
           }
 
-          ///TODO:测试
           return result;
-          return Block();
         });
 
         imageInfo.mcus

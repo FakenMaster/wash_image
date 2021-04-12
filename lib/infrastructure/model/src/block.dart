@@ -73,17 +73,15 @@ class Block {
     return result;
   }
 
+  /// 左移
+  Block shiftLeft(int shiftBit) {
+    block[0][0] = block[0][0] << shiftBit;
+    return this;
+  }
+
   /// 反量化:origin = input * qt;
   Block inverseQT(Block quantizationTable) {
     return this * quantizationTable;
-  }
-
-  /// 隔行正负纠正
-  Block negative() {
-    return Block(mapWithIndex((i, list) {
-      int signal = i.isEven ? -1 : 1;
-      return list.map((e) => e * signal).toList();
-    }).toList());
   }
 
   /// 反离散余弦转换

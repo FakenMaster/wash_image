@@ -3,6 +3,7 @@ import 'package:wash_image/infrastructure/model/src/quantization_table.dart';
 import 'package:stringx/stringx.dart';
 
 class ImageInfo {
+  bool progressive=false;
   int precision;
   int width;
   int height;
