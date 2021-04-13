@@ -23,4 +23,9 @@ extension IntX on int {
   int get clampUnsignedByte {
     return this.clamp(0, 255);
   }
+
+  /// start and end are all inclusive.
+  bool between(int start, int end) {
+    return this >= start && this <= end;
+  }
 }

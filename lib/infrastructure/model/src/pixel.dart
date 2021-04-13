@@ -17,6 +17,15 @@ class PixelRGB {
     return PixelYUV(Y, Cb, Cr);
   }
 
+  PixelRGB shiftLeft(List<int> shiftIndex, int shiftBit) {
+    return PixelRGB(
+      (R << shiftBit).clampUnsignedByte,
+      (G << shiftBit).clampUnsignedByte,
+      (B << shiftBit).clampUnsignedByte,
+    );
+  }
+
+
   @override
   String toString() {
     return "$R $G $B";

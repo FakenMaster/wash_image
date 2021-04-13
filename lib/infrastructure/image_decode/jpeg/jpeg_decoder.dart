@@ -3,14 +3,15 @@ import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
+import 'package:stringx/stringx.dart';
+
 import 'package:wash_image/infrastructure/image_decode/decode_result.dart';
 import 'package:wash_image/infrastructure/image_decode/jpeg/jpeg_jfif.dart';
 import 'package:wash_image/infrastructure/model/src/image_info.dart';
 import 'package:wash_image/infrastructure/model/src/quantization_table.dart';
 
-import '../../util/util.dart';
 import '../../model/model.dart';
-import 'package:stringx/stringx.dart';
+import '../../util/util.dart';
 
 class JPEGDecoder {
   static DecodeResult decode(Uint8List? dataBytes) {
@@ -51,14 +52,15 @@ class _JPEGDecoderInternal {
   }
 
   DecodeResult decode() {
-    // start of image，必须有
-    if (!checkSOI()) {
-      return fail();
-    }
+    try {
+      // start of image，必须有
+      checkSOI();
 
-    /// jfif app0 marker segment,必须有JFIF_APP0,JFXX_APP0有的话紧随其后，其他marker
-    if (!checkSegment()) {
-      return fail();
+      /// jfif app0 marker segment,必须有JFIF_APP0,JFXX_APP0有的话紧随其后，其他marker
+      checkSegment();
+    } catch (e) {
+      result = fail();
+      print('错误:$e');
     }
 
     return result ?? fail();
@@ -81,10 +83,6 @@ class _JPEGDecoderInternal {
     return dWord;
   }
 
-  void skip(int size) {
-    offset += size;
-  }
-
   /// check start of image
   bool checkSOI() {
     int soi = readWord();
@@ -93,42 +91,37 @@ class _JPEGDecoderInternal {
   }
 
   /// check segment
-  bool checkSegment([int? inputSegment]) {
-    // 如果输入值不为空，则无需再读segment标记
-    int segment = inputSegment ?? readWord();
-
+  void checkSegment() {
+    int segment = readWord();
     if (segment == JPEG_SOS) {
-      return getSOS();
+      getSOS();
+      return;
     } else if (segment == JPEG_EOI) {
       getEOI();
-      return true;
+      return;
     } else if (segment == JPEG_APP0) {
-      if (!getAPP0()) {
-        return false;
-      }
+      getAPP0();
     } else if (segment == JPEG_DQT) {
-      if (!getDQT()) {
-        return false;
-      }
+      getDQT();
     } else if (segment == JPEG_DHT) {
       getDHT();
-    } else if (segment >= 0xFFC0 && segment <= 0xFFCF) {
-      imageInfo.progressive = segment == 0xFFC2;
+    } else if (segment >= JPEG_SOF0 && segment <= JPEG_SOFF) {
+      imageInfo.progressive = segment == JPEG_SOF2;
       getSOF(segment);
     } else if (segment == JPEG_COM) {
       // 注释
       print('注释');
-      return false;
+      return;
     } else {
       /// 其他marker
       print('segment:${segment.toRadix()}');
-      return false;
+      return;
     }
 
     return checkSegment();
   }
 
-  bool getAPP0() {
+  void getAPP0() {
     int remain = readWord() - 2;
     print('APP0剩下字节数:$remain');
 
@@ -138,14 +131,13 @@ class _JPEGDecoderInternal {
     print('identifier: ${identifier.toRadix()}');
 
     if (suffix != NULL_BYTE) {
-      return false;
+      return;
     }
     if (identifier == JPEG_IDENTIFIER_JFIF) {
-      return checkJFIFAPP0(remain);
+      checkJFIFAPP0(remain);
     } else if (identifier == JPEG_IDENTIFIER_JFXX) {
-      return checkJFXXAPP0(remain);
+      checkJFXXAPP0(remain);
     }
-    return false;
   }
 
   /// check jfif app0 marker segment
@@ -163,7 +155,6 @@ class _JPEGDecoderInternal {
       02: 'Pixels per centimeter',
     };
 
-    ///
     int density = readByte();
     remain -= 1;
     print(
@@ -196,7 +187,7 @@ class _JPEGDecoderInternal {
   }
 
   /// define quantization table(s)
-  bool getDQT() {
+  getDQT() {
     int length = readWord() - 2;
     print('量化表：DQT:${JPEG_DQT.toRadix()}, 长度:$length');
 
@@ -223,12 +214,10 @@ class _JPEGDecoderInternal {
 
       length -= (1 + size * 64);
     }
-
-    return true;
   }
 
   /// define haffman table(s)
-  bool getDHT() {
+  getDHT() {
     int length = readWord() - 2;
     print('\nDHT:${JPEG_DHT.toRadix()}, 长度:$length');
 
@@ -281,16 +270,15 @@ class _JPEGDecoderInternal {
         type: type, id: number, category: categoryList, codeWord: codeWordList);
     print('$table');
     imageInfo.haffmanTables.add(table);
-    return true;
   }
 
   /// start of frame(baseline DCT)
-  bool getSOF(int soi) {
+  void getSOF(int soi) {
     int length = readWord() - 2;
 
     print('SOF${soi - 0xFFC0}:${soi.toRadix()} , 长度:$length');
     if (length != 15) {
-      return false;
+      throw ArgumentError('SOF header length != 15');
     }
     int precision = readByte();
     int height = readWord();
@@ -334,11 +322,10 @@ class _JPEGDecoderInternal {
       ..maxSamplingH = maxSamplingH
       ..maxSamplingV = maxSamplingV;
     print("");
-    return true;
   }
 
   /// check start of scan
-  bool getSOS() {
+  void getSOS() {
     int length = readWord() - 2;
 
     int number = readByte();
@@ -380,61 +367,58 @@ class _JPEGDecoderInternal {
 
     /// 紧随其后，就是压缩图像的数据了
     readCompressedData();
-
-    // print('哈夫曼编码：${HaffmanEncoder.encode('go go gophers')}');
-    return true;
   }
 
   /// 读取压缩数据
   void readCompressedData() {
     int input = readByte();
     List<int> datas = [];
+    bool newDHT = false;
+
+    addData() {
+      scanDatas.add(datas);
+      datas = [];
+
+      // 对于progressive模式，就应该开始解析这一段数据了。
+      if (imageInfo.progressive && scanDatas.length == 1) {
+        print('数据字节数:${scanDatas[0].length}');
+        readMCUs();
+      }
+    }
+
     while (true) {
       if (input == 0xFF) {
         int marker = readByte();
 
-        if (marker == 0xD9) {
-          //文件结束
-          print('压缩数据长度：${datas.length}\n');
-          scanDatas.add(datas);
+        int segment = 0xFF00 + marker;
+
+        if (segment == JPEG_EOI) {
+          addData();
           getEOI();
           break;
-        } else if (marker == 0xDD) {
+        } else if (segment == JPEG_DRI) {
           print('DRI标记');
           return;
-        } else if (marker == 0xFE) {
-          print('有注释');
-          return;
-        } else if (marker >= 0xD0 && marker <= 0xD7) {
+        } else if (segment >= JPEG_RST0 && segment <= JPEG_RST7) {
           //重置dc差值，还原成0
-          scanDatas.add(datas);
-          datas = [];
-        } else if (marker == 0xDA) {
+          addData();
+        } else if (segment == JPEG_SOS) {
           /// progressive mode中，有多个SOS段
           //重置dc差值，还原成0
-          if (datas.length > 0) {
-            scanDatas.add(datas);
-            print('压缩数据长度：${datas.length}\n');
-            datas = [];
+          if (!newDHT) {
+            /// 本轮SOS没有新的DHT，所以上一个SOS的数据还没有保存
+            addData();
           }
+          newDHT = false;
+
           getSOS();
           return;
-        } else if (marker == 0xC4) {
-          print('压缩数据字节数：${datas.length}\n，位数:${datas.length * 8}');
-          scanDatas.add(datas);
-
-          datas = [];
-
-          /// 這邊就應該去解壓這一次scan的數據了，否則可能AC Huffman表的數據被改變了
-          if (scanDatas.length == 1) {
-            print('数据字节数:${scanDatas[0].length}');
-            readMCUProgressive(scanDatas[0]
-                .map((e) => e.binaryString)
-                .reduce((value, element) => value + element));
-          }
+        } else if (segment == JPEG_DHT) {
+          newDHT = true;
+          addData();
           getDHT();
         } else if (marker == 0x00) {
-          //过滤掉，并把input作为数据插入
+          //过滤掉，并把0xFF作为数据插入
           datas.add(input);
         } else {
           datas.addAll([input, marker]);
@@ -450,89 +434,32 @@ class _JPEGDecoderInternal {
       return;
     }
 
-    int dataBytes = 0;
-    scanDatas.forEach((element) {
-      dataBytes += element.length;
-    });
-    print('总共字节数:$dataBytes');
-
-    // dataStrings = scanDatas
-    //     .map((datas) => datas
-    //         .map((item) => item.binaryString)
-    //         .reduce((value, element) => value + element))
-    //     .toList();
-
-    // readMCUs();
+    print(
+        '总共字节数:${scanDatas.map((e) => e.length).reduce((value, element) => value + element)}');
+    if (!imageInfo.progressive) {
+      readMCUs();
+    }
 
     print('得到的MCU总共是:${imageInfo.mcus.length}, 理应是:${imageInfo.mcuNumber}\n');
     if (imageInfo.mcus.length == 0) {
       print('没有可解析的数据，是解析出错了吧\n');
       return;
     }
-    printData(String title, [int index = 1999]) {
-      if (imageInfo.mcus.length < index) {
-        return;
-      }
-      MCU mcu = imageInfo.mcus[index];
-      int yIndex = 0;
-      debugMessage.writeln('\n$title $index:');
-      mcu.Y.forEach((element) {
-        debugMessage.writeln('Y${yIndex++}：');
-        for (int i = 0; i < 8; i++) {
-          debugMessage.write('[');
-          for (int j = 0; j < 8; j++) {
-            debugMessage.write('${element.block[i][j]}, ');
-          }
-          debugMessage.writeln(']');
-        }
-      });
 
-      debugMessage.writeln('Cb：');
-      for (int i = 0; i < 8; i++) {
-        debugMessage.write('[');
-        for (int j = 0; j < 8; j++) {
-          debugMessage.write('${mcu.Cb[0].block[i][j]}, ');
-        }
-        debugMessage.writeln(']');
-      }
+    /// 反量化 => 反ZigZag =>  反离散余弦转换
+    imageInfo.mcus = imageInfo.mcus
+        .map((e) => e
+            .inverseQT(
+                imageInfo.yQuantizationTable!.block,
+                imageInfo.cbQuantizationTable!.block,
+                imageInfo.crQuantizationTable!.block)
+            .zigZag()
+            .inverseDCT())
+        .toList();
 
-      debugMessage.writeln('Cr：');
-      for (int i = 0; i < 8; i++) {
-        debugMessage.write('[');
-        for (int j = 0; j < 8; j++) {
-          debugMessage.write('${mcu.Cr[0].block[i][j]}, ');
-        }
-        debugMessage.writeln(']');
-      }
-    }
-
-    printYUV(List<List<PixelYUV>> yuvs) {
-      List<List<List<int>>> data = List.generate(
-          3,
-          (index) =>
-              List.generate(8, (index) => List.generate(8, (index) => 0)));
-
-      for (int i = 0; i < 8; i++) {
-        for (int j = 0; j < 8; j++) {
-          PixelYUV pixelYUV = yuvs[i][j];
-          data[0][i][j] = pixelYUV.Y;
-          data[1][i][j] = pixelYUV.Cb;
-          data[2][i][j] = pixelYUV.Cr;
-        }
-      }
-
-      final titles = ['Y', 'U', 'V'];
-      for (int i = 0; i < 3; i++) {
-        debugMessage.writeln('\n${titles[i]}:');
-        for (int u = 0; u < 8; u++) {
-          debugMessage.write('[');
-          for (int v = 0; v < 8; v++) {
-            debugMessage.write('${data[i][u][v]}, ');
-          }
-          debugMessage.writeln(']');
-        }
-      }
-    }
+    /// 还原Y/U/V值
+    List<List<PixelYUV>> yuvs = imageInfo.yuv();
+    // printYUV(yuvs);
 
     printRGB(List<List<PixelRGB>> rgbs) {
       List<List<List<int>>> data = List.generate(
@@ -562,26 +489,10 @@ class _JPEGDecoderInternal {
       }
     }
 
-    /// 反量化 => 反ZigZag =>  反离散余弦转换
-    imageInfo.mcus = imageInfo.mcus
-        .map((e) => e
-            .inverseQT(
-                imageInfo.yQuantizationTable!.block,
-                imageInfo.cbQuantizationTable!.block,
-                imageInfo.crQuantizationTable!.block)
-            .zigZag()
-            .inverseDCT()
-            .shiftLeft([0, 0], 1))
-        .toList();
-
-    /// 还原Y/U/V值
-    List<List<PixelYUV>> yuvs = imageInfo.yuv();
-    // printYUV(yuvs);
-
     /// 还原RGB值
     List<List<PixelRGB>> rgbs =
         yuvs.map((list) => list.map((e) => e.convert2RGB()).toList()).toList();
-    // printRGB(rgbs);
+    printRGB(rgbs);
 
     StringBuffer buffer = StringBuffer();
     buffer
@@ -591,19 +502,14 @@ class _JPEGDecoderInternal {
 
     for (int i = 0; i < imageInfo.height; i++) {
       for (int j = 0; j < imageInfo.width; j++) {
-        buffer
-          ..write("${rgbs[i][j].R} ")
-          ..write("${rgbs[i][j].G} ")
-          ..writeln("${rgbs[i][j].B}");
+        buffer.writeln("${rgbs[i][j]}");
       }
     }
 
     if (kIsWeb) {
       var blob = Blob([buffer.toString()], 'text/plain', 'native');
 
-      var anchorElement = AnchorElement(
-        href: Url.createObjectUrlFromBlob(blob).toString(),
-      )
+      AnchorElement(href: Url.createObjectUrlFromBlob(blob).toString())
         ..setAttribute("download", "After__data.ppm")
         ..click();
     }
@@ -615,273 +521,19 @@ class _JPEGDecoderInternal {
     return true;
   }
 
-  String dataToString(List<int> data) {
-    return data
-        .map((e) => e.binaryString)
-        .reduce((value, element) => value + element);
-  }
-
   readMCUs() {
     if (imageInfo.progressive) {
-      readMCUProgressive(dataStrings[0]);
+      /// Progressive解析MCU数据
+      print(
+          '解析Progressive, scanDatas长度:${scanDatas.length}, 第一个数据长度:${scanDatas[0].length}');
+
+      MCUDataString(scanDatas[0].binaryString).generateMCUProgressive(imageInfo);
       return;
     }
-    dataStrings.mapWithIndex((index, element) {
-      print('第$index个:');
-      readMCU(element);
-    }).toList();
-  }
 
-  readMCUProgressive(String dataString) {
-    print('字符串长度:${dataString.length}');
-    int dataIndex = 0;
-    List<int> lastDC = [0, 0, 0];
-
-    int getDCValue(HaffmanTable table, int dcIndex) {
-      int dcLength = 1;
-
-      while (true) {
-        String codeWord = getStringData(dataString, dataIndex, dcLength);
-
-        if (table.codeWord.contains(codeWord)) {
-          dataIndex += dcLength;
-          // 计算DC值
-          int category = table.category[table.codeWord.indexOf(codeWord)];
-
-          int dcValue = category == 0
-              ? lastDC[dcIndex]
-              : getValueByCode(getStringData(dataString, dataIndex, category)) +
-                  lastDC[dcIndex];
-          dataIndex += category;
-          lastDC[dcIndex] = dcValue;
-          return dcValue;
-        } else {
-          dcLength++;
-        }
-      }
-    }
-
-    while (dataIndex < dataString.length) {
-      try {
-        List<Block> luminance = List.generate(4, (index) {
-          Block result = Block();
-
-          /// DC值
-          int dcValue = getDCValue(imageInfo.yHaffmanTable(true)!, 0);
-
-          result.block[0][0] = dcValue;
-          return result;
-        });
-
-        List<Block> chrominanceCb = List.generate(1, (index) {
-          Block result = Block();
-
-          // DC值
-          int dcValue = getDCValue(imageInfo.cbHaffmanTable(true)!, 1);
-
-          result.block[0][0] = dcValue;
-          return result;
-        });
-
-        List<Block> chrominanceCr = List.generate(1, (index) {
-          Block result = Block();
-
-          /// DC值
-          int dcValue = getDCValue(imageInfo.crHaffmanTable(true)!, 2);
-
-          result.block[0][0] = dcValue;
-          return result;
-        });
-
-        imageInfo.mcus
-            .add(MCU(Y: luminance, Cb: chrominanceCb, Cr: chrominanceCr));
-      } catch (e) {
-        /// 压缩数据最后如果不足一个字节，要补1
-        print(
-            '错误:$e\n, 出错的地方:${dataString.substring(dataIndex, dataIndex + 10)}');
-        break;
-      }
-    }
-    print('最终数据大小:${imageInfo.mcus.length}');
-    int start = imageInfo.mcus.length;
-    for (int i = start; i < imageInfo.mcuNumber; i++) {
-      imageInfo.mcus.add(MCU(
-          Y: List.generate(4, (index) => Block()),
-          Cb: [Block()],
-          Cr: [Block()]));
-    }
-  }
-
-  int getValueByCodeProgressive(String inputValueCode, int bit) {
-    int signal = bit == 0 ? -1 : 1;
-
-    return signal * int.parse(inputValueCode, radix: 2);
-  }
-
-  /// 获取值的表：
-  /// https://www.w3.org/Graphics/JPEG/itu-t81.pdf 139页的
-  /// Table H.2 – Difference categories for lossless Huffman coding
-  int getValueByCode(String inputValueCode) {
-    int signal = 1;
-    String valueCode = '';
-    if (inputValueCode.startsWith('0')) {
-      signal = -1;
-      // 说明是负数，取反计算对应的正数值
-      for (int j = 0; j < inputValueCode.length; j++) {
-        valueCode += inputValueCode[j] == '0' ? '1' : '0';
-      }
-    } else {
-      valueCode = inputValueCode;
-    }
-
-    return signal * int.parse(valueCode, radix: 2);
-  }
-
-  String getStringData(String dataString, int dataIndex, int dcLength) {
-    if (dataIndex + dcLength > dataString.length) {
-      throw ArgumentError(
-          '数据不够了,当前dataIndex:$dataIndex, 总共${dataString.length}位');
-    }
-    return dataString.substring(dataIndex, dataIndex + dcLength);
-  }
-
-  readMCU(String dataString) {
-    /// Y、U、V各自有直流差分矫正变量，如果数据流中出现RSTn,那么三个颜色的矫正变量都要改变
-    List<int> lastDC = [0, 0, 0];
-    int dataIndex = 0;
-
-    int getDCValue(HaffmanTable table, int dcIndex) {
-      int dcLength = 1;
-
-      while (true) {
-        String codeWord = getStringData(dataString, dataIndex, dcLength);
-
-        if (table.codeWord.contains(codeWord)) {
-          dataIndex += dcLength;
-          // 计算DC值
-          int category = table.category[table.codeWord.indexOf(codeWord)];
-
-          int dcValue = category == 0
-              ? lastDC[dcIndex]
-              : getValueByCode(getStringData(dataString, dataIndex, category)) +
-                  lastDC[dcIndex];
-          lastDC[dcIndex] = dcValue;
-          dataIndex += category;
-          return dcValue;
-        } else {
-          dcLength++;
-        }
-      }
-    }
-
-    List<int> getACValue(HaffmanTable table) {
-      int acLength = 1;
-      List<int> result = [];
-
-      while (true) {
-        String codeWord = dataString.substring(dataIndex, dataIndex + acLength);
-
-        if (table.codeWord.contains(codeWord)) {
-          dataIndex += acLength;
-          int category = table.category[table.codeWord.indexOf(codeWord)];
-
-          /// run表示前面有几个值是0
-          int run = category >> 4;
-
-          /// 这表示后面取几个bit表示值
-          int size = category & 0x0f;
-
-          if (run == 0 && size == 0) {
-            result.addAll(List.generate(63 - result.length, (_) => 0));
-          } else {
-            result.addAll(List.generate(run, (_) => 0));
-
-            int value = size == 0
-                ? 0
-                : getValueByCode(
-                    dataString.substring(dataIndex, dataIndex + size));
-
-            result.add(value);
-          }
-          dataIndex += size;
-          acLength = 1;
-          if (result.length == 63) {
-            break;
-          }
-        } else {
-          acLength++;
-        }
-      }
-
-      return result;
-    }
-
-    while (dataIndex < dataString.length) {
-      try {
-        List<Block> luminance = List.generate(4, (index) {
-          Block result = Block();
-
-          /// DC值
-          int dcValue = getDCValue(imageInfo.yHaffmanTable(true)!, 0);
-
-          /// AC值
-          List<int> acValues = getACValue(imageInfo.yHaffmanTable(false)!);
-
-          result.block[0][0] = dcValue;
-          for (int j = 0; j < acValues.length; j++) {
-            int line = (j + 1) ~/ 8;
-            int column = (j + 1) % 8;
-            result.block[line][column] = acValues[j];
-          }
-
-          return result;
-        });
-
-        List<Block> chrominanceCb = List.generate(1, (index) {
-          Block result = Block();
-
-          /// DC值
-          int dcValue = getDCValue(imageInfo.cbHaffmanTable(true)!, 1);
-
-          /// AC值
-          List<int> acValues = getACValue(imageInfo.cbHaffmanTable(false)!);
-
-          result.block[0][0] = dcValue;
-          for (int j = 0; j < acValues.length; j++) {
-            int line = (j + 1) ~/ 8;
-            int column = (j + 1) % 8;
-            result.block[line][column] = acValues[j];
-          }
-
-          return result;
-        });
-
-        List<Block> chrominanceCr = List.generate(1, (index) {
-          Block result = Block();
-
-          /// DC值
-          int dcValue = getDCValue(imageInfo.crHaffmanTable(true)!, 2);
-
-          /// AC值
-          List<int> acValues = getACValue(imageInfo.crHaffmanTable(false)!);
-
-          result.block[0][0] = dcValue;
-          for (int j = 0; j < acValues.length; j++) {
-            int line = (j + 1) ~/ 8;
-            int column = (j + 1) % 8;
-            result.block[line][column] = acValues[j];
-          }
-
-          return result;
-        });
-
-        imageInfo.mcus
-            .add(MCU(Y: luminance, Cb: chrominanceCb, Cr: chrominanceCr));
-      } catch (e) {
-        /// 压缩数据最后如果不足一个字节，要补1
-        print('错误:$e\n');
-        break;
-      }
-    }
+    /// Baseline解析MCU数据
+    scanDatas.forEach((element) {
+      MCUDataString(element.binaryString).generateMCU(imageInfo);
+    });
   }
 }

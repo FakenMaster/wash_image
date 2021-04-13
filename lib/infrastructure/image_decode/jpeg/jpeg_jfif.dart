@@ -10,11 +10,13 @@ const int JPEG_SOF0 = 0xFFC0;
 /// start of frame(progressive DCT)
 const int JPEG_SOF2 = 0xFFC2;
 
+const int JPEG_SOFF = 0xFFCF;
+
 /// define huffman table(s)
 const int JPEG_DHT = 0xFFC4;
 
 /// define quantization table(s)
-const int JPEG_DQT = 0xffDB;
+const int JPEG_DQT = 0xFFDB;
 
 /// define restart interval
 const int JPEG_DRI = 0xFFDD;
@@ -23,6 +25,8 @@ const int JPEG_DRI = 0xFFDD;
 const int JPEG_SOS = 0xFFDA;
 
 /// restart: RSTn 0xFF, 0xDn(n=0..7)
+const int JPEG_RST0 = 0xFFD0;
+const int JPEG_RST7 = 0xFFD7;
 
 /// application-specific: APPn 0xFF,0xEn , such as app0 below:
 /// APP0 marker
