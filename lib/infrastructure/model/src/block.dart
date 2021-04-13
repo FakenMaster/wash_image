@@ -1,6 +1,6 @@
 import 'dart:math';
 import '../../util/util.dart';
-import 'package:stringx/stringx.dart';
+import 'package:collection/collection.dart';
 
 const ZigZag = [
   // [0,0],
@@ -54,8 +54,8 @@ class Block {
 
   Block operator *(Block input) {
     return Block(block
-        .mapWithIndex((i, list) =>
-            list.mapWithIndex((j, value) => value * input.item(i, j)).toList())
+        .mapIndexed((i, list) =>
+            list.mapIndexed((j, value) => value * input.item(i, j)).toList())
         .toList());
   }
 
@@ -66,7 +66,7 @@ class Block {
   /// Z型还原
   Block zigZag() {
     Block result = Block();
-    mapWithIndex((i, list) => list.mapWithIndex((j, value) {
+    mapWithIndex((i, list) => list.mapIndexed((j, value) {
           List<int> position = ZigZag[i * 8 + j];
           result.block[position[0]][position[1]] = value;
         }).toList()).toList();
@@ -101,9 +101,8 @@ class Block {
       }
       return (value / 4).round();
     }
-
     return Block(mapWithIndex((i, list) => list
-        .mapWithIndex((j, value) => (d(i, j, this) + 128).clampUnsignedByte)
+        .mapIndexed((j, value) => (d(i, j, this) + 128).clampUnsignedByte)
         .toList()).toList());
   }
 

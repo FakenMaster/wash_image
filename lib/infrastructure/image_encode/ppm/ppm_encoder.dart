@@ -5,10 +5,9 @@ import 'package:wash_image/infrastructure/image_encode/block.dart';
 import 'package:wash_image/infrastructure/image_encode/component.dart';
 import 'package:wash_image/infrastructure/image_encode/mcu.dart';
 import 'package:wash_image/infrastructure/model/src/pixel.dart';
-import 'package:stringx/stringx.dart';
 import 'package:wash_image/infrastructure/image_decode/jpeg/jpeg_jfif.dart';
 import 'package:wash_image/infrastructure/util/src/int_extension.dart';
-
+import 'package:collection/collection.dart';
 class PPMEncoder {
   late ByteData bytes;
   List<String> infos = [];
@@ -58,9 +57,9 @@ class PPMEncoder {
         .toList();
 
     print('\n');
-    strs.mapWithIndex((i, value) {
+    strs.mapIndexed((i, value) {
       print('MCU:${i + 1}');
-      value.yStrs.mapWithIndex((j, str) {
+      value.yStrs.mapIndexed((j, str) {
         print('Y${j + 1}:\n$str');
       }).toList();
       print('Cb:\n${value.uStr}');
@@ -159,7 +158,7 @@ class PPMEncoder {
     StringBuffer buffer = StringBuffer();
 
     rgbs.forEach((element) {
-      yuvs.add(element.mapWithIndex((index, value) {
+      yuvs.add(element.mapIndexed((index, value) {
         buffer.write('$value  ');
         return value.convert2YUV();
       }).toList());
@@ -269,8 +268,8 @@ class PPMEncoder {
 
     List<List<int>> dct(List<List<int>> items) {
       return items
-          .mapWithIndex((i, lineItems) =>
-              lineItems.mapWithIndex((j, value) => d(i, j, items)).toList())
+          .mapIndexed((i, lineItems) =>
+              lineItems.mapIndexed((j, value) => d(i, j, items)).toList())
           .toList();
     }
 
@@ -312,8 +311,8 @@ class PPMEncoder {
     final qt = isLuminance ? luminanceQT : chrominanceQT;
 
     List<List<int>> result = items
-        .mapWithIndex((i, _) => items[i]
-            .mapWithIndex((j, _) => (items[i][j] / qt[i][j]).round())
+        .mapIndexed((i, _) => items[i]
+            .mapIndexed((j, _) => (items[i][j] / qt[i][j]).round())
             .toList())
         .toList();
 

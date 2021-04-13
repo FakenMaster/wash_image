@@ -1,13 +1,14 @@
 import 'dart:html';
 import 'dart:math';
 import 'dart:typed_data';
-
+import 'package:collection/collection.dart';
 import 'package:flutter/foundation.dart';
-import 'package:stringx/stringx.dart';
+import 'package:logger/logger.dart';
 
 import 'package:wash_image/infrastructure/image_decode/decode_result.dart';
 import 'package:wash_image/infrastructure/image_decode/jpeg/jpeg_jfif.dart';
 import 'package:wash_image/infrastructure/model/src/image_info.dart';
+import 'package:wash_image/infrastructure/model/src/multi_scan_data.dart';
 import 'package:wash_image/infrastructure/model/src/quantization_table.dart';
 
 import '../../model/model.dart';
@@ -60,7 +61,7 @@ class _JPEGDecoderInternal {
       checkSegment();
     } catch (e) {
       result = fail();
-      print('错误:$e');
+      Logger().e('错误:$e');
     }
 
     return result ?? fail();
@@ -266,10 +267,11 @@ class _JPEGDecoderInternal {
       lastValue = nowValue;
     }
 
-    HaffmanTable table = HaffmanTable(
+    HuffmanTable table = HuffmanTable(
         type: type, id: number, category: categoryList, codeWord: codeWordList);
     print('$table');
-    imageInfo.haffmanTables.add(table);
+    // 这个应该存储在单独的ScanData中
+    imageInfo.addHuffmanTable(table);
   }
 
   /// start of frame(baseline DCT)
@@ -332,18 +334,18 @@ class _JPEGDecoderInternal {
     print(
         '#${scanDatas.length} SOS:${JPEG_SOS.toRadix()}, 长度:$length, component个数:$number');
 
-    Map<int, String> componentMap = {1: 'Y', 2: 'Cb', 3: 'Cr', 4: 'I', 5: 'Q'};
+    List<List<int>> componentIds = [];
+
     for (int i = 0; i < number; i++) {
       int componentId = readByte();
       int huffmanTable = readByte();
       int dc = huffmanTable >> 4;
       int ac = huffmanTable & 0x0f;
       print(
-          'componentId:$componentId=>${(componentMap[componentId] ?? '').padRight(2)}, DC$dc ++ AC$ac');
+          'componentId:$componentId=>${(ComponentName[componentId] ?? '').padRight(2)}, DC$dc ++ AC$ac');
 
-      imageInfo.setComponentDCAC(componentId, dc, ac);
+      componentIds.add([componentId, dc, ac]);
     }
-    print("");
 
     /// start of spectral or predictor selector
     /// for sequential DCT,this shall be zero;
@@ -351,19 +353,18 @@ class _JPEGDecoderInternal {
     int start = readByte();
 
     /// end of spectral selection
-    /// 0-63,if start==0 then 0
+    /// 0-63
     int end = readByte();
-    if (start == 0) {
-      end = 0;
-    }
 
     /// successive approximation: Ah Al
-    int sa = readByte();
-    int ah = (sa >> 4) & 0x0F;
-    int al = sa & 0x0F;
+    int successiveApproximation = readByte();
+    int high = (successiveApproximation >> 4) & 0x0F;
+    int low = successiveApproximation & 0x0F;
+
+    imageInfo.addScanData(componentIds, [start, end, high, low]);
 
     print(
-        'start spectral:$start, end spectral:$end, \nsuccesive approximation: high:$ah, low:$al');
+        '\nstart spectral:$start, end spectral:$end, \nsuccesive approximation: high:$high, low:$low');
 
     /// 紧随其后，就是压缩图像的数据了
     readCompressedData();
@@ -380,8 +381,7 @@ class _JPEGDecoderInternal {
       datas = [];
 
       // 对于progressive模式，就应该开始解析这一段数据了。
-      if (imageInfo.progressive && scanDatas.length == 1) {
-        print('数据字节数:${scanDatas[0].length}');
+      if (imageInfo.progressive) {
         readMCUs();
       }
     }
@@ -435,7 +435,7 @@ class _JPEGDecoderInternal {
     }
 
     print(
-        '总共字节数:${scanDatas.map((e) => e.length).reduce((value, element) => value + element)}');
+        '总共字节数:${scanDatas.map((e) => e.length).sum}');
     if (!imageInfo.progressive) {
       readMCUs();
     }
@@ -450,9 +450,9 @@ class _JPEGDecoderInternal {
     imageInfo.mcus = imageInfo.mcus
         .map((e) => e
             .inverseQT(
-                imageInfo.yQuantizationTable!.block,
-                imageInfo.cbQuantizationTable!.block,
-                imageInfo.crQuantizationTable!.block)
+                imageInfo.yQuantizationTable.block,
+                imageInfo.cbQuantizationTable.block,
+                imageInfo.crQuantizationTable.block)
             .zigZag()
             .inverseDCT())
         .toList();
@@ -524,10 +524,13 @@ class _JPEGDecoderInternal {
   readMCUs() {
     if (imageInfo.progressive) {
       /// Progressive解析MCU数据
-      print(
-          '解析Progressive, scanDatas长度:${scanDatas.length}, 第一个数据长度:${scanDatas[0].length}');
-
-      MCUDataString(scanDatas[0].binaryString).generateMCUProgressive(imageInfo);
+      if (scanDatas.length == 1) {
+        MCUDataString(scanDatas[0].binaryString)
+            .generateMCUProgressive(imageInfo);
+      } else if (scanDatas.length == 2) {
+        MCUDataString(scanDatas[1].binaryString)
+            .generateMCUProgressive1(imageInfo, 1, 5);
+      }
       return;
     }
 

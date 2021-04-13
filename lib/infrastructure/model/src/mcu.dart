@@ -1,5 +1,6 @@
 import 'block.dart';
-import 'haffman_table.dart';
+import 'component_info.dart';
+import 'huffman_table.dart';
 import 'image_info.dart';
 
 class MCU {
@@ -90,7 +91,7 @@ class MCUDataString {
     return dataString.substring(offset, offset + dcLength);
   }
 
-  int getDCValue(HaffmanTable table, int dcIndex) {
+  int getDCValue(HuffmanTable table, int dcIndex) {
     int length = 1;
 
     while (true) {
@@ -113,7 +114,7 @@ class MCUDataString {
     }
   }
 
-  List<int> getACValue(HaffmanTable table) {
+  List<int> getACValues(HuffmanTable table, [int totalLength = 63]) {
     int length = 1;
     List<int> result = [];
 
@@ -131,7 +132,7 @@ class MCUDataString {
         int size = category & 0x0f;
 
         if (run == 0 && size == 0) {
-          result.addAll(List.generate(63 - result.length, (_) => 0));
+          result.addAll(List.generate(totalLength - result.length, (_) => 0));
         } else {
           result.addAll(List.generate(run, (_) => 0));
 
@@ -141,7 +142,7 @@ class MCUDataString {
         }
         offset += size;
         length = 1;
-        if (result.length == 63) {
+        if (result.length == totalLength) {
           break;
         }
       } else {
@@ -160,10 +161,13 @@ class MCUDataString {
           Block result = Block();
 
           /// DC值
-          int dcValue = getDCValue(imageInfo.yHaffmanTable(true)!, 0);
+          int dcValue = getDCValue(
+              imageInfo.getHuffmanTable(ComponentY, HuffmanTableDC),
+              LastDCIndexY);
 
           /// AC值
-          List<int> acValues = getACValue(imageInfo.yHaffmanTable(false)!);
+          List<int> acValues = getACValues(
+              imageInfo.getHuffmanTable(ComponentY, HuffmanTableAC));
 
           result.block[0][0] = dcValue;
           for (int j = 0; j < acValues.length; j++) {
@@ -179,10 +183,13 @@ class MCUDataString {
           Block result = Block();
 
           /// DC值
-          int dcValue = getDCValue(imageInfo.cbHaffmanTable(true)!, 1);
+          int dcValue = getDCValue(
+              imageInfo.getHuffmanTable(ComponentCb, HuffmanTableDC),
+              LastDCIndexCb);
 
           /// AC值
-          List<int> acValues = getACValue(imageInfo.cbHaffmanTable(false)!);
+          List<int> acValues = getACValues(
+              imageInfo.getHuffmanTable(ComponentCb, HuffmanTableAC));
 
           result.block[0][0] = dcValue;
           for (int j = 0; j < acValues.length; j++) {
@@ -198,10 +205,13 @@ class MCUDataString {
           Block result = Block();
 
           /// DC值
-          int dcValue = getDCValue(imageInfo.crHaffmanTable(true)!, 2);
+          int dcValue = getDCValue(
+              imageInfo.getHuffmanTable(ComponentCr, HuffmanTableDC),
+              LastDCIndexCr);
 
           /// AC值
-          List<int> acValues = getACValue(imageInfo.crHaffmanTable(false)!);
+          List<int> acValues = getACValues(
+              imageInfo.getHuffmanTable(ComponentCr, HuffmanTableAC));
 
           result.block[0][0] = dcValue;
           for (int j = 0; j < acValues.length; j++) {
@@ -224,6 +234,7 @@ class MCUDataString {
   }
 
   void generateMCUProgressive(ImageInfo imageInfo) {
+    /// 0
     while (offset < dataString.length) {
       //这部分内容获取
       try {
@@ -231,8 +242,10 @@ class MCUDataString {
           Block result = Block();
 
           /// DC值
-          int dcValue = getDCValue(imageInfo.yHaffmanTable(true)!, 0);
-          result.block[0][0] = dcValue;
+          int dcValue = getDCValue(
+              imageInfo.getHuffmanTable(ComponentY, HuffmanTableDC),
+              LastDCIndexY);
+          // result.block[0][0] = dcValue;
           return result;
         });
 
@@ -240,9 +253,11 @@ class MCUDataString {
           Block result = Block();
 
           // DC值
-          int dcValue = getDCValue(imageInfo.cbHaffmanTable(true)!, 1);
+          int dcValue = getDCValue(
+              imageInfo.getHuffmanTable(ComponentCb, HuffmanTableDC),
+              LastDCIndexCb);
 
-          result.block[0][0] = dcValue;
+          // result.block[0][0] = dcValue;
           return result;
         });
 
@@ -250,9 +265,11 @@ class MCUDataString {
           Block result = Block();
 
           /// DC值
-          int dcValue = getDCValue(imageInfo.crHaffmanTable(true)!, 2);
+          int dcValue = getDCValue(
+              imageInfo.getHuffmanTable(ComponentCr, HuffmanTableDC),
+              LastDCIndexCr);
 
-          result.block[0][0] = dcValue;
+          // result.block[0][0] = dcValue;
           return result;
         });
 
@@ -265,4 +282,30 @@ class MCUDataString {
       }
     }
   }
+
+  void generateMCUProgressive1(
+      ImageInfo imageInfo, int spectralStart, int spectralEnd) {
+    int totalLength = spectralEnd - spectralStart + 1;
+    while (offset < dataString.length) {
+      //这部分内容获取
+      try {
+        imageInfo.mcus.forEach((mcu) {
+          mcu.Y.forEach((block) {
+            List<int> result = getACValues(
+                imageInfo.getHuffmanTable(ComponentY, HuffmanTableAC),
+                totalLength);
+            for (int i = 1; i <= 5; i++) {
+              block.block[0][i] = result[i - 1];
+            }
+          });
+        });
+      } catch (e) {
+        /// 压缩数据最后如果不足一个字节，要补1
+        print('错误:$e\n');
+        break;
+      }
+    }
+  }
 }
+
+/// Progressive中多次扫描的数据

@@ -1,3 +1,37 @@
+import 'package:wash_image/infrastructure/model/model.dart';
+
+/// 在一张图片中，这个信息是唯一的，和单个还是多个扫描行无关
+const ComponentY = 1;
+const ComponentCb = 2;
+const ComponentCr = 3;
+const ComponentI = 4;
+const ComponentQ = 5;
+
+const ComponentName = {
+  ComponentY: 'Y',
+  ComponentCb: 'Cb',
+  ComponentCr: 'Cr',
+  ComponentI: 'I',
+  ComponentQ: 'Q',
+};
+
+class ComponentIDTable {
+  int id;
+  HuffmanTable? dcTable;
+  HuffmanTable? acTable;
+
+  ComponentIDTable({
+    required this.id,
+    this.dcTable,
+    this.acTable,
+  });
+
+  @override
+  String toString() {
+    return "$id: DC:${dcTable?.id}, Ac:${acTable?.id}";
+  }
+}
+
 class ComponentInfo {
   /// 1 = Y, 2 = Cb, 3 = Cr, 4 = I, 5 = Q
   int componentId;
@@ -8,22 +42,8 @@ class ComponentInfo {
   /// 垂直取样值
   int verticalSampling;
 
-  /// dc表id
-  late int dcId;
-
-  /// ac表id
-  late int acId;
-
   /// 量化表id
   int qtId;
-
-  static const ComponentName = {
-    1: 'Y',
-    2: 'Cb',
-    3: 'Cr',
-    4: 'I',
-    5: 'Q',
-  };
 
   ComponentInfo({
     required this.componentId,

@@ -1,9 +1,15 @@
 import 'package:wash_image/infrastructure/model/model.dart';
 import 'package:wash_image/infrastructure/model/src/quantization_table.dart';
-import 'package:stringx/stringx.dart';
+import 'package:wash_image/infrastructure/model/src/multi_scan_data.dart';
+import 'component_info.dart';
+import 'package:collection/collection.dart';
+
+const LastDCIndexY = 0;
+const LastDCIndexCb = 1;
+const LastDCIndexCr = 2;
 
 class ImageInfo {
-  bool progressive=false;
+  bool progressive = false;
   int precision;
   int width;
   int height;
@@ -13,7 +19,12 @@ class ImageInfo {
 
   List<QuantizationTable> quantizationTables;
   List<ComponentInfo> componentInfos;
-  List<HaffmanTable> haffmanTables;
+
+  /// 最近一次ScanData的Huffman Table
+  List<HuffmanTable> _huffmanTables;
+
+  List<MultiScanData> multiScanDatas;
+  late MultiScanData currentScanData;
 
   List<MCU> mcus = [];
 
@@ -25,7 +36,8 @@ class ImageInfo {
     this.maxSamplingV = 0,
   })  : componentInfos = [],
         quantizationTables = [],
-        haffmanTables = [];
+        _huffmanTables = [],
+        multiScanDatas = [];
 
   /// MCU个数
   int get mcuNumber => columnMCU * lineMCU;
@@ -36,58 +48,59 @@ class ImageInfo {
   /// MCU的行數
   int get lineMCU => (height / (maxSamplingV * 8)).ceil();
 
-  /// 設置component的DC/AC的id值
-  setComponentDCAC(int componentId, int dcId, int acId) {
-    componentInfo(componentId)!
-      ..dcId = dcId
-      ..acId = acId;
-  }
-
-  ComponentInfo? componentInfo(int componentId) =>
-      componentInfos.firstWhere((element) => element.componentId == componentId,
-          orElse: null);
+  ComponentInfo componentInfo(int componentId) => componentInfos
+      .firstWhere((element) => element.componentId == componentId);
 
   /// Y component
-  ComponentInfo? get yInfo => componentInfos
-      .firstWhere((element) => element.componentId == 1, orElse: null);
+  ComponentInfo get yInfo =>
+      componentInfos.firstWhere((element) => element.componentId == ComponentY);
 
   /// U component
-  ComponentInfo? get cbInfo => componentInfos
-      .firstWhere((element) => element.componentId == 2, orElse: null);
+  ComponentInfo get cbInfo => componentInfos
+      .firstWhere((element) => element.componentId == ComponentCb);
 
   /// V component
-  ComponentInfo? get crInfo => componentInfos
-      .firstWhere((element) => element.componentId == 3, orElse: null);
+  ComponentInfo get crInfo => componentInfos
+      .firstWhere((element) => element.componentId == ComponentCr);
 
-  QuantizationTable? qt(int qtId) => quantizationTables
-      .firstWhere((element) => element.qtId == qtId, orElse: null);
+  QuantizationTable qt(int qtId) =>
+      quantizationTables.firstWhere((element) => element.qtId == qtId);
 
-  QuantizationTable? get yQuantizationTable => qt(yInfo!.qtId);
-  QuantizationTable? get cbQuantizationTable => qt(cbInfo!.qtId);
-  QuantizationTable? get crQuantizationTable => qt(crInfo!.qtId);
+  QuantizationTable get yQuantizationTable => qt(yInfo.qtId);
+  QuantizationTable get cbQuantizationTable => qt(cbInfo.qtId);
+  QuantizationTable get crQuantizationTable => qt(crInfo.qtId);
 
-  HaffmanTable? ht(int type, int id) => haffmanTables.firstWhere(
-      (element) => element.type == type && element.id == id,
-      orElse: null);
+  HuffmanTable? _ht(int type, int id) => _huffmanTables
+      .firstWhereOrNull((element) => element.type == type && element.id == id);
 
-  HaffmanTable? haffmanTable(int componentId, bool dc) {
-    final info = componentInfo(componentId)!;
-    return ht(dc ? 0 : 1, dc ? info.dcId : info.acId);
+  HuffmanTable getHuffmanTable(int componentId, int tableType) {
+    return currentScanData.getHuffmanTable(componentId, tableType)!;
   }
 
-  HaffmanTable? yHaffmanTable(bool dc) {
-    final info = yInfo!;
-    return ht(dc ? 0 : 1, dc ? info.dcId : info.acId);
+  void addHuffmanTable(HuffmanTable table) {
+    /// remove if present
+    _huffmanTables
+      ..remove(table)
+      // ..removeWhere(
+      //     (element) => element.type == table.type && element.id == table.id)
+      ..add(table);
   }
 
-  HaffmanTable? cbHaffmanTable(bool dc) {
-    final info = cbInfo!;
-    return ht(dc ? 0 : 1, dc ? info.dcId : info.acId);
-  }
-
-  HaffmanTable? crHaffmanTable(bool dc) {
-    final info = crInfo!;
-    return ht(dc ? 0 : 1, dc ? info.dcId : info.acId);
+  void addScanData(List<List<int>> componentIds, List<int> progressiveParams) {
+    currentScanData = MultiScanData(
+      idTables: componentIds
+          .map((e) => ComponentIDTable(
+                id: e[0],
+                dcTable: _ht(HuffmanTableDC, e[1]),
+                acTable: _ht(HuffmanTableAC, e[2]),
+              ))
+          .toList(),
+      spectralStart: progressiveParams[0],
+      spectralEnd: progressiveParams[1],
+      succesiveHigh: progressiveParams[2],
+      succesiveLow: progressiveParams[3],
+    );
+    multiScanDatas.add(currentScanData);
   }
 
   yuv() {
@@ -107,9 +120,9 @@ class ImageInfo {
     luminace(List<Block> blockList, int pixelLine, int pixelColumn,
         List<List<int>> result) {
       blockList
-          .mapWithIndex((number, block) => block
+          .mapIndexed((number, block) => block
               .mapWithIndex(
-                  (indexLine, list) => list.mapWithIndex((indexColumn, value) {
+                  (indexLine, list) => list.mapIndexed((indexColumn, value) {
                         int nowLine = pixelLine + 8 * (number ~/ 2) + indexLine;
                         int nowColumn =
                             pixelColumn + 8 * (number % 2) + indexColumn;
@@ -123,7 +136,7 @@ class ImageInfo {
         Block block, int pixelLine, int pixelColumn, List<List<int>> result) {
       block
           .mapWithIndex(
-              (indexLine, list) => list.mapWithIndex((indexColumn, value) {
+              (indexLine, list) => list.mapIndexed((indexColumn, value) {
                     int nowLine = pixelLine + indexLine * 2;
                     int nowColumn = pixelColumn + indexColumn * 2;
                     result[nowLine][nowColumn] = result[nowLine + 1]
@@ -148,7 +161,7 @@ class ImageInfo {
     }
 
     return yPixels
-        .mapWithIndex((i, list) => list.mapWithIndex((j, y) {
+        .mapIndexed((i, list) => list.mapIndexed((j, y) {
               return PixelYUV(y, uPixels[i][j], vPixels[i][j]);
             }).toList())
         .toList();
