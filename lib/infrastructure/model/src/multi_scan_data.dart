@@ -1,9 +1,9 @@
 import 'package:wash_image/infrastructure/model/model.dart';
 import 'package:collection/collection.dart';
 
-class MultiScanData {
+class MultiScanHeader {
   /// 本轮扫描的数据参数
-  MultiScanData({
+  MultiScanHeader({
     this.idTables = const [],
     this.spectralStart = 0,
     this.spectralEnd = 0,
@@ -35,5 +35,16 @@ class MultiScanData {
       return tableType == HuffmanTableDC ? table.dcTable : table.acTable;
     }
     return null;
+  }
+
+  @override
+  String toString() {
+    StringBuffer buffer = StringBuffer();
+    buffer.writeln(
+        'spectralStart:$spectralStart, spectralEnd:$spectralEnd, successiveHigh:$succesiveHigh, successiveLow:$succesiveLow');
+
+    buffer.writeln('哈夫曼表:');
+    idTables.forEach(buffer.writeln);
+    return buffer.toString();
   }
 }

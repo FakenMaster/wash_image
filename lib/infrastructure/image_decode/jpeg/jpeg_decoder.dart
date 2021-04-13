@@ -434,8 +434,7 @@ class _JPEGDecoderInternal {
       return;
     }
 
-    print(
-        '总共字节数:${scanDatas.map((e) => e.length).sum}');
+    print('总共字节数:${scanDatas.map((e) => e.length).sum}');
     if (!imageInfo.progressive) {
       readMCUs();
     }
@@ -527,10 +526,11 @@ class _JPEGDecoderInternal {
       if (scanDatas.length == 1) {
         MCUDataString(scanDatas[0].binaryString)
             .generateMCUProgressive(imageInfo);
-      } else if (scanDatas.length == 2) {
-        MCUDataString(scanDatas[1].binaryString)
-            .generateMCUProgressive1(imageInfo, 1, 5);
-      }
+      } 
+      // else if (scanDatas.length == 2) {
+      //   MCUDataString(scanDatas[1].binaryString)
+      //       .generateMCUProgressive1(imageInfo, 1, 5);
+      // }
       return;
     }
 

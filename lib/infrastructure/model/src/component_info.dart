@@ -15,6 +15,12 @@ const ComponentName = {
   ComponentQ: 'Q',
 };
 
+const ComponentDCIndex = {
+  ComponentY: 0,
+  ComponentCb: 1,
+  ComponentCr: 2,
+};
+
 class ComponentIDTable {
   int id;
   HuffmanTable? dcTable;
@@ -28,7 +34,7 @@ class ComponentIDTable {
 
   @override
   String toString() {
-    return "$id: DC:${dcTable?.id}, Ac:${acTable?.id}";
+    return "ComponentID:${ComponentName[id]} ===> DC:${dcTable?.id}, AC:${acTable?.id}";
   }
 }
 

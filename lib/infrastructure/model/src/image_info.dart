@@ -23,8 +23,8 @@ class ImageInfo {
   /// 最近一次ScanData的Huffman Table
   List<HuffmanTable> _huffmanTables;
 
-  List<MultiScanData> multiScanDatas;
-  late MultiScanData currentScanData;
+  List<MultiScanHeader> multiScanDatas;
+  late MultiScanHeader currentScanHeader;
 
   List<MCU> mcus = [];
 
@@ -47,6 +47,15 @@ class ImageInfo {
 
   /// MCU的行數
   int get lineMCU => (height / (maxSamplingV * 8)).ceil();
+
+  void initMCU() {
+    mcus = List.generate(
+        lineMCU * columnMCU,
+        (index) => MCU(
+            Y: List.generate(4, (index) => Block()),
+            Cb: List.generate(1, (index) => Block()),
+            Cr: List.generate(1, (index) => Block())));
+  }
 
   ComponentInfo componentInfo(int componentId) => componentInfos
       .firstWhere((element) => element.componentId == componentId);
@@ -74,7 +83,7 @@ class ImageInfo {
       .firstWhereOrNull((element) => element.type == type && element.id == id);
 
   HuffmanTable getHuffmanTable(int componentId, int tableType) {
-    return currentScanData.getHuffmanTable(componentId, tableType)!;
+    return currentScanHeader.getHuffmanTable(componentId, tableType)!;
   }
 
   void addHuffmanTable(HuffmanTable table) {
@@ -87,20 +96,22 @@ class ImageInfo {
   }
 
   void addScanData(List<List<int>> componentIds, List<int> progressiveParams) {
-    currentScanData = MultiScanData(
+    currentScanHeader = MultiScanHeader(
       idTables: componentIds
           .map((e) => ComponentIDTable(
                 id: e[0],
                 dcTable: _ht(HuffmanTableDC, e[1]),
                 acTable: _ht(HuffmanTableAC, e[2]),
               ))
-          .toList(),
+          .toList()
+            ..sort((a, b) => a.id - b.id),
       spectralStart: progressiveParams[0],
       spectralEnd: progressiveParams[1],
       succesiveHigh: progressiveParams[2],
       succesiveLow: progressiveParams[3],
     );
-    multiScanDatas.add(currentScanData);
+    print('新添扫描头:$currentScanHeader');
+    multiScanDatas.add(currentScanHeader);
   }
 
   yuv() {

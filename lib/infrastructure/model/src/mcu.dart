@@ -1,7 +1,10 @@
+import 'package:wash_image/infrastructure/model/src/multi_scan_data.dart';
+
 import 'block.dart';
 import 'component_info.dart';
 import 'huffman_table.dart';
 import 'image_info.dart';
+import 'package:collection/collection.dart';
 
 class MCU {
   /// luminance
@@ -20,6 +23,17 @@ class MCU {
   int get YLength => Y.length;
   int get CbLength => Cb.length;
   int get CrLength => Cr.length;
+
+  List<Block> getBlock(int componentId) {
+    if (componentId == ComponentY) {
+      return Y;
+    } else if (componentId == ComponentCb) {
+      return Cb;
+    } else if (componentId == ComponentCr) {
+      return Cr;
+    }
+    return [];
+  }
 
   /// ZigZag还原数据
   MCU zigZag() {
@@ -234,53 +248,84 @@ class MCUDataString {
   }
 
   void generateMCUProgressive(ImageInfo imageInfo) {
-    /// 0
-    while (offset < dataString.length) {
-      //这部分内容获取
-      try {
-        List<Block> luminance = List.generate(4, (index) {
-          Block result = Block();
+    /// 当前ScanLine的header数据
+    MultiScanHeader currentHeader = imageInfo.currentScanHeader;
 
-          /// DC值
-          int dcValue = getDCValue(
-              imageInfo.getHuffmanTable(ComponentY, HuffmanTableDC),
-              LastDCIndexY);
-          // result.block[0][0] = dcValue;
-          return result;
+    final length = currentHeader.spectralEnd - currentHeader.spectralStart + 1;
+
+    imageInfo.initMCU();
+    imageInfo.mcus.forEach((mcu) {
+      currentHeader.idTables.forEach((idTables) {
+        int componentId = idTables.id;
+        mcu.getBlock(componentId).forEach((block) {
+          int startIndex = currentHeader.spectralStart;
+          int size = length;
+          if (startIndex == 0) {
+            /// DC值
+            block.block[startIndex ~/ 8][startIndex % 8] = getDCValue(
+                currentHeader.getHuffmanTable(componentId, HuffmanTableDC)!,
+                ComponentDCIndex[componentId]!);
+            size -= 1;
+            startIndex++;
+          }
+
+          if (size > 0) {
+            getACValues(
+                    currentHeader.getHuffmanTable(componentId, HuffmanTableAC)!,
+                    size)
+                .mapIndexed((index, value) {
+              block.block[(startIndex + index) ~/ 8][(startIndex + index) % 8] =
+                  value;
+            }).toList();
+          }
         });
+      });
+    });
+    // while (offset < dataString.length) {
+    //   try {
+    //     List<Block> luminance = List.generate(4, (index) {
+    //       Block result = Block();
 
-        List<Block> chrominanceCb = List.generate(1, (index) {
-          Block result = Block();
+    //       /// DC值
+    //       int dcValue = getDCValue(
+    //           imageInfo.getHuffmanTable(ComponentY, HuffmanTableDC),
+    //           LastDCIndexY);
+    //       result.block[0][0] = dcValue;
+    //       return result;
+    //     });
 
-          // DC值
-          int dcValue = getDCValue(
-              imageInfo.getHuffmanTable(ComponentCb, HuffmanTableDC),
-              LastDCIndexCb);
+    //     List<Block> chrominanceCb = List.generate(1, (index) {
+    //       Block result = Block();
 
-          // result.block[0][0] = dcValue;
-          return result;
-        });
+    //       // DC值
+    //       int dcValue = getDCValue(
+    //           imageInfo.getHuffmanTable(ComponentCb, HuffmanTableDC),
+    //           LastDCIndexCb);
 
-        List<Block> chrominanceCr = List.generate(1, (index) {
-          Block result = Block();
+    //       result.block[0][0] = dcValue;
+    //       return result;
+    //     });
 
-          /// DC值
-          int dcValue = getDCValue(
-              imageInfo.getHuffmanTable(ComponentCr, HuffmanTableDC),
-              LastDCIndexCr);
+    //     List<Block> chrominanceCr = List.generate(1, (index) {
+    //       Block result = Block();
 
-          // result.block[0][0] = dcValue;
-          return result;
-        });
+    //       /// DC值
+    //       int dcValue = getDCValue(
+    //           imageInfo.getHuffmanTable(ComponentCr, HuffmanTableDC),
+    //           LastDCIndexCr);
 
-        imageInfo.mcus
-            .add(MCU(Y: luminance, Cb: chrominanceCb, Cr: chrominanceCr));
-      } catch (e) {
-        /// 压缩数据最后如果不足一个字节，要补1
-        print('错误:$e\n');
-        break;
-      }
-    }
+    //       result.block[0][0] = dcValue;
+    //       return result;
+    //     });
+
+    //     imageInfo.mcus
+    //         .add(MCU(Y: luminance, Cb: chrominanceCb, Cr: chrominanceCr));
+    //   } catch (e) {
+    //     /// 压缩数据最后如果不足一个字节，要补1
+    //     print('错误:$e\n');
+    //     break;
+    //   }
+    // }
   }
 
   void generateMCUProgressive1(
