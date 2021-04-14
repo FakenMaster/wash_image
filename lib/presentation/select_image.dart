@@ -52,7 +52,7 @@ class _SelectImagePageState extends State<SelectImagePage> {
                   //   var anchorElement = AnchorElement(
                   //     href: Url.createObjectUrlFromBlob(blob).toString(),
                   //   )
-                  //     ..setAttribute("download", "painting_progress.ppm")
+                  //     ..setAttribute("download", "painting_pp3.ppm")
                   //     ..click();
                   // }
 

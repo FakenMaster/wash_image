@@ -59,9 +59,9 @@ class _JPEGDecoderInternal {
 
       /// jfif app0 marker segment,必须有JFIF_APP0,JFXX_APP0有的话紧随其后，其他marker
       checkSegment();
-    } catch (e) {
+    } catch (e, stacktrace) {
       result = fail();
-      Logger().e('错误:$e');
+      Logger().e('错误Top:$e, $stacktrace');
     }
 
     return result ?? fail();
@@ -323,6 +323,10 @@ class _JPEGDecoderInternal {
       ..height = height
       ..maxSamplingH = maxSamplingH
       ..maxSamplingV = maxSamplingV;
+    if (imageInfo.progressive) {
+      /// 初始化MCUs
+      imageInfo.initMCU();
+    }
     print("");
   }
 
@@ -523,14 +527,12 @@ class _JPEGDecoderInternal {
   readMCUs() {
     if (imageInfo.progressive) {
       /// Progressive解析MCU数据
-      if (scanDatas.length == 1) {
-        MCUDataString(scanDatas[0].binaryString)
-            .generateMCUProgressive(imageInfo);
-      } 
-      // else if (scanDatas.length == 2) {
-      //   MCUDataString(scanDatas[1].binaryString)
-      //       .generateMCUProgressive1(imageInfo, 1, 5);
-      // }
+      if (scanDatas.length <= 1) {
+        print('數據長度:${scanDatas.last.length}\n');
+
+        MCUDataString(scanDatas.last.binaryString)
+            .generateMCUProgressive(imageInfo, scanDatas.length - 1);
+      }
       return;
     }
 

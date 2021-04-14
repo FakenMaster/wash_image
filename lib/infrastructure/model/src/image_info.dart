@@ -1,3 +1,4 @@
+import 'package:logger/logger.dart';
 import 'package:wash_image/infrastructure/model/model.dart';
 import 'package:wash_image/infrastructure/model/src/quantization_table.dart';
 import 'package:wash_image/infrastructure/model/src/multi_scan_data.dart';
@@ -110,7 +111,7 @@ class ImageInfo {
       succesiveHigh: progressiveParams[2],
       succesiveLow: progressiveParams[3],
     );
-    print('新添扫描头:$currentScanHeader');
+    Logger().i('新添扫描头:$currentScanHeader');
     multiScanDatas.add(currentScanHeader);
   }
 
