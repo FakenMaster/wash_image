@@ -1,4 +1,5 @@
 import 'dart:math';
+import 'dart:typed_data';
 import '../../util/util.dart';
 import 'package:collection/collection.dart';
 
@@ -35,87 +36,134 @@ const ZigZag = [
   [7, 7],
 ];
 
+const List<int> ZIGZAG = [
+  0,
+  1,
+  5,
+  6,
+  14,
+  15,
+  27,
+  28,
+  2,
+  4,
+  7,
+  13,
+  16,
+  26,
+  29,
+  42,
+  3,
+  8,
+  12,
+  17,
+  25,
+  30,
+  41,
+  43,
+  9,
+  11,
+  18,
+  24,
+  31,
+  40,
+  44,
+  53,
+  10,
+  19,
+  23,
+  32,
+  39,
+  45,
+  52,
+  54,
+  20,
+  22,
+  33,
+  38,
+  46,
+  51,
+  55,
+  60,
+  21,
+  34,
+  37,
+  47,
+  50,
+  56,
+  59,
+  61,
+  35,
+  36,
+  48,
+  49,
+  57,
+  58,
+  62,
+  63
+];
+
 /// block是8*8的矩阵
 class Block {
-  List<List<int>> _block;
-  Block([List<List<int>>? block])
-      : this._block = block ??
-            List.generate(8, (index) => List.generate(8, (index) => 0));
+  List<int> _block;
+  Block([List<int>? block]) : this._block = block ?? Int32List(64);
 
-  List<List<int>> get block => _block;
-
-  static const BlockSize = 8;
-
-  int item(int i, int j) => _block[i][j];
-
-  void setItem(int i, int j, int value) {
-    _block[i][j] = value;
-  }
+  List<int> get block => _block;
 
   Block operator *(Block input) {
-    return Block(block
-        .mapIndexed((i, list) =>
-            list.mapIndexed((j, value) => value * input.item(i, j)).toList())
-        .toList());
-  }
-
-  Iterable<T> mapWithIndex<T>(T Function(int i, List<int> list) function) {
-    return block.asMap().entries.map((e) => function(e.key, e.value));
-  }
-
-  /// Z型还原
-  Block zigZag() {
-    Block result = Block();
-    mapWithIndex((i, list) => list.mapIndexed((j, value) {
-          List<int> position = ZigZag[i * 8 + j];
-          result.block[position[0]][position[1]] = value;
-        }).toList()).toList();
-    return result;
-  }
-
-  /// 左移
-  Block shiftLeft(int shiftBit) {
-    block[0][0] = block[0][0] << shiftBit;
+    _block.forEachIndexed((index, element) {
+      _block[index] *= input.block[index];
+    });
     return this;
   }
 
+  /// Z型还原
+  zigZag() {
+    _block.forEachIndexed((index, element) {
+      _block[ZIGZAG[index]] = element;
+    });
+  }
+
   /// 反量化:origin = input * qt;
-  Block inverseQT(Block quantizationTable) {
-    return this * quantizationTable;
+  inverseQT(List<int> quantizationTable) {
+    _block.forEachIndexed((index, element) {
+      _block[index] *= quantizationTable[index];
+    });
   }
 
   /// 反离散余弦转换
-  Block inverseDCT() {
+  void inverseDCT() {
     double c(int value) => value == 0 ? 1 / sqrt2 : 1;
 
-    int d(int x, int y, Block origin) {
+    int d(int x, int y, List<int> origin) {
       double value = 0;
       for (int u = 0; u < 8; u++) {
         for (int v = 0; v < 8; v++) {
           value += (c(u) *
               c(v) *
-              origin.block[u][v] *
+              origin[u * 8 + v] *
               cos((2 * x + 1) * u * pi / 16) *
               cos((2 * y + 1) * v * pi / 16));
         }
       }
       return (value / 4).round();
     }
-    return Block(mapWithIndex((i, list) => list
-        .mapIndexed((j, value) => (d(i, j, this) + 128).clampUnsignedByte)
-        .toList()).toList());
+
+    _block.forEachIndexed((index, value) {
+      _block[index] =
+          (d(index ~/ 8, index % 8, _block) + 128).clampUnsignedByte;
+    });
   }
 
   @override
   String toString() {
     StringBuffer buffer = StringBuffer();
-    for (int i = 0; i < block.length; i++) {
-      buffer.write('[');
-      block[i].forEach((element) {
-        buffer.write('$element, ');
-      });
-      buffer.writeln(']');
-    }
+    block.forEachIndexed((index, element) {
+      buffer.write('$element, ');
+      if (index % 8 == 7) {
+        buffer.writeln(']');
+      }
+    });
     return buffer.toString();
   }
 }

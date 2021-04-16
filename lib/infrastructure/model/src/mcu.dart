@@ -1,7 +1,7 @@
-import 'package:image/image.dart';
 import 'package:logger/logger.dart';
 import 'package:wash_image/infrastructure/image_decode/jpeg/jpeg_decoder.dart';
 import 'package:wash_image/infrastructure/model/src/multi_scan_data.dart';
+import 'package:wash_image/infrastructure/model/src/quantization_table.dart';
 
 import 'block.dart';
 import 'component_info.dart';
@@ -17,11 +17,9 @@ class MCU {
   List<Block> Cb;
   List<Block> Cr;
 
-  MCU({
-    required this.Y,
-    required this.Cb,
-    required this.Cr,
-  });
+  List<List<Block>> components;
+
+  MCU(this.components);
 
   int get YLength => Y.length;
   int get CbLength => Cb.length;
@@ -39,36 +37,22 @@ class MCU {
   }
 
   /// ZigZag还原数据
-  MCU zigZag() {
-    return MCU(
-        Y: Y.map((e) => e.zigZag()).toList(),
-        Cb: Cb.map((e) => e.zigZag()).toList(),
-        Cr: Cr.map((e) => e.zigZag()).toList());
-  }
-
-  /// 左右移位
-  MCU shiftLeft(List<int> shiftIndex, int shiftBit) {
-    return MCU(
-        Y: Y.map((e) => e.shiftLeft(shiftBit)).toList(),
-        Cb: Cb.map((e) => e.shiftLeft(shiftBit)).toList(),
-        Cr: Cr.map((e) => e.shiftLeft(shiftBit)).toList());
+  zigZag() {
+    components.forEach((compo) => compo.forEach((block) => block.zigZag()));
   }
 
   /// 反量化
-  MCU inverseQT(Block yQuantizationTable, Block cbQuantizationTable,
-      Block crQuantizationTable) {
-    return MCU(
-        Y: Y.map((e) => e.inverseQT(yQuantizationTable)).toList(),
-        Cb: Cb.map((e) => e.inverseQT(cbQuantizationTable)).toList(),
-        Cr: Cr.map((e) => e.inverseQT(crQuantizationTable)).toList());
+   inverseQT(List<QuantizationTable> tables) {
+    components.forEachIndexed((index, compo) {
+      compo.forEach((block) => block.inverseQT(tables[index]));
+    });
   }
 
   /// 反离散余弦变换
-  MCU inverseDCT() {
-    return MCU(
-        Y: Y.map((e) => e.inverseDCT()).toList(),
-        Cb: Cb.map((e) => e.inverseDCT()).toList(),
-        Cr: Cr.map((e) => e.inverseDCT()).toList());
+   inverseDCT() {
+    components.forEachIndexed((index, compo) {
+      compo.forEach((block) => block.inverseDCT());
+    });
   }
 }
 
@@ -108,7 +92,7 @@ class MCUDataString {
     return dataString.substring(offset, offset + dcLength);
   }
 
-  int getDCValue(HuffmanTable table, int dcIndex) {
+  int getDCValue(HuffmanTable table, int dcIndex, [int successive = 0]) {
     int length = 1;
 
     while (true) {
@@ -119,12 +103,14 @@ class MCUDataString {
         // 计算DC值
         int category = table.category[table.codeWord.indexOf(codeWord)];
 
-        int dcValue = category == 0
-            ? lastDC[dcIndex]
-            : getValueByCode(readString(category)) + lastDC[dcIndex];
-        lastDC[dcIndex] = dcValue;
+        int diff = category == 0
+            ? 0
+            : getValueByCode(readString(category)) << successive;
+
+        diff += lastDC[dcIndex];
+        lastDC[dcIndex] = diff;
         offset += category;
-        return dcValue;
+        return diff;
       } else {
         length++;
       }
@@ -265,6 +251,8 @@ class MCUDataString {
     }
   }
 
+  void decodeBaseline(ImageInfo imageInfo) {}
+
   void generateMCU(ImageInfo imageInfo) {
     print('数据长度:${dataString.length}');
     while (offset < dataString.length) {
@@ -345,13 +333,13 @@ class MCUDataString {
     }
   }
 
-  void generateMCUProgressive(ImageInfo imageInfo,int index) {
+  void generateMCUProgressive(ImageInfo imageInfo, int index) {
     /// 当前ScanLine的header数据
     MultiScanHeader currentHeader = imageInfo.currentScanHeader;
 
     final length = currentHeader.spectralEnd - currentHeader.spectralStart + 1;
 
-    if (index==0) {
+    if (index == 0) {
       imageInfo.mcus.forEach((mcu) {
         currentHeader.idTables.forEach((idTables) {
           int componentId = idTables.id;
@@ -361,8 +349,12 @@ class MCUDataString {
             if (startIndex == 0) {
               /// DC值
               block.block[startIndex ~/ 8][startIndex % 8] = getDCValue(
-                  currentHeader.getHuffmanTable(componentId, HuffmanTableDC)!,
-                  ComponentDCIndex[componentId]!);
+                currentHeader.getHuffmanTable(componentId, HuffmanTableDC)!,
+                ComponentDCIndex[componentId]!,
+                currentHeader.succesiveHigh == 0
+                    ? currentHeader.succesiveLow
+                    : 0,
+              );
               size -= 1;
               startIndex++;
             }
@@ -385,30 +377,4 @@ class MCUDataString {
           imageInfo);
     }
   }
-
-  void generateMCUProgressive1(
-      ImageInfo imageInfo, int spectralStart, int spectralEnd) {
-    int totalLength = spectralEnd - spectralStart + 1;
-    while (offset < dataString.length) {
-      //这部分内容获取
-      try {
-        imageInfo.mcus.forEach((mcu) {
-          mcu.Y.forEach((block) {
-            List<int> result = getACValues(
-                imageInfo.getHuffmanTable(ComponentY, HuffmanTableAC),
-                totalLength);
-            for (int i = 1; i <= 5; i++) {
-              block.block[0][i] = result[i - 1];
-            }
-          });
-        });
-      } catch (e, stacktrace) {
-        /// 压缩数据最后如果不足一个字节，要补1
-        print('错误:$e, $stacktrace\n');
-        break;
-      }
-    }
-  }
 }
-
-/// Progressive中多次扫描的数据

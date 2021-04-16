@@ -5,7 +5,7 @@ import 'package:wash_image/infrastructure/image_encode/block.dart';
 import 'package:wash_image/infrastructure/image_encode/component.dart';
 import 'package:wash_image/infrastructure/image_encode/mcu.dart';
 import 'package:wash_image/infrastructure/model/src/pixel.dart';
-import 'package:wash_image/infrastructure/image_decode/jpeg/jpeg_jfif.dart';
+import 'package:wash_image/infrastructure/image_decode/jpeg/jpeg.dart';
 import 'package:wash_image/infrastructure/util/src/int_extension.dart';
 import 'package:collection/collection.dart';
 class PPMEncoder {

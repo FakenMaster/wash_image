@@ -1,11 +1,11 @@
-import 'block.dart';
+import 'dart:typed_data';
+
+import 'package:collection/collection.dart';
 
 class QuantizationTable {
-  int precision;
   int qtId;
-  Block block;
+  Int16List block;
   QuantizationTable({
-    required this.precision,
     required this.qtId,
     required this.block,
   });
@@ -13,9 +13,17 @@ class QuantizationTable {
   @override
   String toString() {
     StringBuffer buffer = StringBuffer();
-    buffer
-      ..writeln('id:$qtId')
-      ..writeln(block.toString());
+    buffer.writeln('id:$qtId');
+
+    block.forEachIndexed((index, element) {
+      if (index % 8 == 0) {
+        buffer.write('[');
+      }
+      buffer.write('$element, ');
+      if (index % 8 == 7) {
+        buffer.writeln(']');
+      }
+    });
 
     return buffer.toString();
   }

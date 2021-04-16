@@ -124,9 +124,9 @@ packages:
   image:
     dependency: "direct main"
     description:
-      name: image
-      url: "https://pub.dartlang.org"
-    source: hosted
+      path: "../image"
+      relative: true
+    source: path
     version: "3.0.2"
   js:
     dependency: transitive
@@ -224,13 +224,6 @@ packages:
       url: "https://pub.dartlang.org"
     source: hosted
     version: "1.1.0"
-  stringx:
-    dependency: "direct main"
-    description:
-      name: stringx
-      url: "https://pub.dartlang.org"
-    source: hosted
-    version: "1.0.0-nullsafety.0"
   term_glyph:
     dependency: transitive
     description:
